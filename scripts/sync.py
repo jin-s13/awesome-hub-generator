@@ -19,29 +19,47 @@ from typing import Any, Dict, List, Optional, Tuple
 import yaml
 import requests
 from slugify import slugify
+from volcenginesdkarkruntime import Ark
 
 ROOT = Path(__file__).resolve().parents[1]
 
 # ---- LLM 调用 ----
 
-def llm_chat(messages: List[Dict], model: str = "") -> str:
-    """调用 LLM API（兼容 OpenAI / 火山引擎格式）"""
-    api_key = os.environ.get("CHEAP_LLM__API_KEY") or os.environ.get("SMART_LLM__API_KEY", "")
-    base_url = os.environ.get("CHEAP_LLM__BASE_URL") or os.environ.get("SMART_LLM__BASE_URL", "https://api.openai.com/v1")
-    model = model or os.environ.get("CHEAP_LLM__MODEL_NAME", "gpt-4o-mini")
-
+def _get_ark_client() -> Optional[Ark]:
+    """获取火山引擎 Ark 客户端"""
+    api_key = os.environ.get("ARK_API_KEY", "")
+    base_url = os.environ.get("ARK_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
     if not api_key:
-        print("[sync] 警告: 未配置 LLM API Key，跳过 LLM 分类")
+        print("[sync] 警告: 未配置 ARK_API_KEY，跳过 LLM 分类")
+        return None
+    return Ark(base_url=base_url, api_key=api_key)
+
+
+def llm_chat(messages: List[Dict], model: str = "") -> str:
+    """调用火山引擎 DeepSeek LLM"""
+    client = _get_ark_client()
+    if not client:
         return ""
 
-    resp = requests.post(
-        f"{base_url.rstrip('/')}/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={"model": model, "messages": messages, "temperature": 0.1, "max_tokens": 1024},
-        timeout=60,
-    )
-    resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"]
+    model = model or os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash-260425")
+
+    try:
+        response = client.responses.create(
+            model=model,
+            input=messages,
+            temperature=0.1,
+            max_output_tokens=1024,
+        )
+        # responses API 返回格式
+        for output in response.output:
+            if output.type == "message":
+                for content in output.content:
+                    if content.type == "output_text":
+                        return content.text
+        return ""
+    except Exception as e:
+        print(f"[sync] LLM 调用失败: {e}")
+        return ""
 
 
 def classify_paper(title: str, abstract: str, categories: List[str]) -> Dict:

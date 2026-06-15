@@ -43,11 +43,11 @@ research:
 
 | Secret | 说明 | 示例值 |
 |--------|------|--------|
-| `CHEAP_LLM__API_KEY` | LLM API Key | `sk-xxxxx` |
-| `CHEAP_LLM__BASE_URL` | API 地址 | `https://ark.cn-beijing.volces.com/api/v3` |
-| `CHEAP_LLM__MODEL_NAME` | 模型名 | `deepseek-v4-flash` |
+| `ARK_API_KEY` | 火山引擎 API Key | `sk-xxxxx` |
+| `ARK_API_BASE_URL` | API 地址（可选） | `https://ark.cn-beijing.volces.com/api/v3` |
+| `ARK_MODEL_NAME` | 模型名（可选） | `deepseek-v4-flash-260425` |
 
-> 支持火山引擎 DeepSeek、OpenAI、OpenRouter 等任意兼容 OpenAI 格式的 API。
+> 支持火山引擎 DeepSeek 等任意兼容 OpenAI 格式的 API。
 
 ### 4. 全量构建
 

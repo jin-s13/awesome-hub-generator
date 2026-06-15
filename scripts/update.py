@@ -41,7 +41,7 @@ def run_arxiv_researcher(config: dict) -> bool:
     env_path = researcher_dir / ".env"
     if not env_path.exists():
         # 从父项目环境变量创建
-        env_vars = {k: v for k, v in os.environ.items() if k.startswith(("CHEAP_LLM_", "SMART_LLM_"))}
+        env_vars = {k: v for k, v in os.environ.items() if k.startswith("ARK_")}
         if env_vars:
             env_content = "\n".join(f"{k}={v}" for k, v in env_vars.items())
             env_path.write_text(env_content, encoding="utf-8")

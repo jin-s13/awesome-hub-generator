@@ -45,12 +45,9 @@ jobs:
 
       - name: Configure LLM keys
         run: |
-          echo "CHEAP_LLM__API_KEY=${{ secrets.CHEAP_LLM__API_KEY }}" >> $GITHUB_ENV
-          echo "CHEAP_LLM__BASE_URL=${{ secrets.CHEAP_LLM__BASE_URL }}" >> $GITHUB_ENV
-          echo "CHEAP_LLM__MODEL_NAME=${{ secrets.CHEAP_LLM__MODEL_NAME || 'deepseek-v4-flash' }}" >> $GITHUB_ENV
-          echo "SMART_LLM__API_KEY=${{ secrets.SMART_LLM__API_KEY || secrets.CHEAP_LLM__API_KEY }}" >> $GITHUB_ENV
-          echo "SMART_LLM__BASE_URL=${{ secrets.SMART_LLM__BASE_URL || secrets.CHEAP_LLM__BASE_URL }}" >> $GITHUB_ENV
-          echo "SMART_LLM__MODEL_NAME=${{ secrets.SMART_LLM__MODEL_NAME || secrets.CHEAP_LLM__MODEL_NAME || 'deepseek-v4-flash' }}" >> $GITHUB_ENV
+          echo "ARK_API_KEY=${{ secrets.ARK_API_KEY }}" >> $GITHUB_ENV
+          echo "ARK_API_BASE_URL=${{ secrets.ARK_API_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3' }}" >> $GITHUB_ENV
+          echo "ARK_MODEL_NAME=${{ secrets.ARK_MODEL_NAME || 'deepseek-v4-flash-260425' }}" >> $GITHUB_ENV
 
       - name: Full build
         run: |
