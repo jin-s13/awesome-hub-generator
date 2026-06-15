@@ -1,0 +1,3 @@
+[submodule "arxiv-daily-researcher"]
+	path = arxiv-daily-researcher
+	url = https://github.com/yzr278892/arxiv-daily-researcher.git
