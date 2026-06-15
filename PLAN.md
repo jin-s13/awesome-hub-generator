@@ -208,7 +208,7 @@ research:
 | Python 3.11 | 脚本语言 | 生态丰富，arXiv API 友好 |
 | Astro 4 | 静态网站生成 | 高性能，组件化，当前项目已在用 |
 | arXiv API | 论文搜索 | 免费，无需 API Key |
-| volcengine-python-sdk | LLM 调用 | 火山引擎 DeepSeek，性价比高 |
+| volcengine-python-sdk | LLM 调用 | 火山引擎 DeepSeek，原生 SDK 支持 responses API |
 | arxiv-daily-researcher | 论文发现引擎 | 成熟的开源工具，两种模式都支持 |
 | GitHub Actions | CI/CD | 免费，与 GitHub Pages 深度集成 |
 | GitHub Pages | 网站托管 | 免费静态托管 |
