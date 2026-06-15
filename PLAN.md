@@ -49,13 +49,17 @@ awesome-cad-hub/                ← 具体 awesome 站点（产物仓库）
     ┌──────────────────┐          ┌──────────────────┐
     │  全量构建 (build) │          │ 每日更新 (update) │
     │                  │          │                  │
-    │ ① arXiv API 搜索  │          │ ① arxiv-daily-   │
-    │   历史论文         │          │   researcher 运行 │
-    │ ② LLM 分类打标签   │          │ ② 解析新论文      │
-    │ ③ 生成 YAML 数据   │          │ ③ 去重合并到 YAML │
-    │ ④ 从模板生成网站   │          │ ④ 重新构建网站    │
-    │ ⑤ npm build       │          │ ⑤ 部署到 Pages   │
-    │ ⑥ 部署到 Pages    │          │                  │
+    │ ① GitHub API 搜索 │          │ ① arxiv-daily-   │
+    │   已有 awesome 项目│          │   researcher 运行 │
+    │ ② 自动吸纳数据     │          │ ② 解析新论文      │
+    │   (clone + 解析)   │          │ ③ 去重合并到 YAML │
+    │ ③ arXiv 补充搜索   │          │ ④ 重新构建网站    │
+    │   (去重)           │          │ ⑤ 部署到 Pages   │
+    │ ④ LLM 分类打标签   │          │                  │
+    │ ⑤ 生成 YAML 数据   │          │                  │
+    │ ⑥ 从模板生成网站   │          │                  │
+    │ ⑦ npm build       │          │                  │
+    │ ⑧ 部署到 Pages    │          │                  │
     └────────┬─────────┘          └────────┬─────────┘
              │                             │
              └──────────────┬──────────────┘
@@ -71,6 +75,7 @@ awesome-cad-hub/                ← 具体 awesome 站点（产物仓库）
 | 组件 | 文件 | 职责 |
 |------|------|------|
 | 配置 | `awesome.yaml` | 研究方向、关键词、arXiv 分类、网站信息 |
+| GitHub 发现 | `scripts/discover_sources.py` | 自动搜索 GitHub 已有 awesome 项目并吸纳数据 |
 | arXiv 搜索 | `scripts/sync.py` | arXiv API 搜索 + LLM 分类 + YAML 输出 |
 | 全量构建 | `scripts/build.py` | 从零构建完整网站 |
 | 每日更新 | `scripts/update.py` | 增量更新论文并重新构建 |
@@ -104,9 +109,195 @@ awesome-cad-hub/                ← 具体 awesome 站点（产物仓库）
 
 ---
 
-## 3. 安全方案
+## 3. 自动发现上游 Awesome 项目
 
-### 3.1 API Key 管理
+### 3.1 设计思路
+
+全量构建时，系统自动在 GitHub 上搜索该研究方向已有的 awesome 项目，直接 clone 并吸纳其数据，避免从零开始。
+
+```
+build.py 全量构建
+    │
+    ├── Phase 1: 自动发现上游 awesome 项目
+    │     │
+    │     ├── 1a. GitHub API 搜索（无需 Token，用量很小）
+    │     │     ├── 按 topic 搜索: topic:awesome + topic:CAD
+    │     │     ├── 按 README 内容搜索: "awesome" + "CAD" in:readme
+    │     │     └── 按仓库名搜索: awesome-CAD in:name
+    │     │
+    │     ├── 1b. 过滤候选
+    │     │     ├── min_stars >= 5
+    │     │     ├── README 包含论文/工具列表（检测 Markdown 表格或列表）
+    │     │     ├── 非 Fork、非 Archived
+    │     │     └── 排除自己（避免循环引用）
+    │     │
+    │     ├── 1c. 按 stars 排序，取 Top 10
+    │     │
+    │     └── 1d. 自动采纳（无需用户确认）
+    │           └── 进入 Phase 2
+    │
+    ├── Phase 2: 吸纳数据
+    │     │
+    │     ├── 2a. 抓取 README（git clone 或 raw 文件）
+    │     ├── 2b. 自动检测格式
+    │     │     ├── 📊 Markdown 表格 → MarkdownTableParser
+    │     │     ├── 📋 Markdown 列表 → MarkdownListParser
+    │     │     ├── 📁 YAML 文件 → YamlParser
+    │     │     └── 📄 JSON 文件 → JsonParser
+    │     ├── 2c. 解析为统一格式
+    │     └── 2d. 去重合并到 data/papers.yaml
+    │
+    ├── Phase 3: arXiv 补充搜索
+    │     ├── 搜索 arXiv 历史论文
+    │     ├── 与已有数据去重
+    │     └── LLM 分类后追加
+    │
+    └── Phase 4: 生成网站
+```
+
+### 3.2 GitHub Search API 策略
+
+| 认证状态 | 频率限制 | 每页结果 | 总结果上限 | 是否够用 |
+|---------|---------|---------|-----------|---------|
+| 未认证（无 Token） | 10 次/分钟 | 5 条 | 前 100 条 | ✅ 够用 |
+| 已认证（有 Token） | 30 次/分钟 | 100 条 | 前 1000 条 | ✅ 更好 |
+
+我们的场景：3-5 个关键词 × 3 种搜索策略 = 9-15 次请求，未认证的 10 次/分钟完全够用。
+
+GitHub Token 为可选项，通过环境变量 `GITHUB_TOKEN` 注入（和 API Key 一样走 Secrets），不配也能工作。
+
+### 3.3 搜索策略详解
+
+```python
+def discover_awesome_sources(keywords):
+    """
+    自动发现 GitHub 上的 awesome 项目
+    使用 GitHub Search API，无需额外爬虫
+    """
+    sources = set()
+    
+    # 策略 1: 按 topic 搜索
+    # 很多 awesome 项目会打 awesome 和 领域 两个 topic
+    for kw in keywords:
+        query = f"topic:awesome topic:{kw}"
+        results = github_api.search_repos(query, sort="stars", order="desc")
+        sources.update(results)
+    
+    # 策略 2: 按 README 内容搜索
+    query = ' '.join(f'"{kw}"' for kw in keywords)
+    query = f'"awesome" "{query}" in:readme'
+    results = github_api.search_repos(query, sort="stars", order="desc")
+    sources.update(results)
+    
+    # 策略 3: 按仓库名搜索
+    for kw in keywords:
+        query = f"awesome-{kw} in:name"
+        results = github_api.search_repos(query, sort="stars", order="desc")
+        sources.update(results)
+    
+    # 过滤
+    filtered = [
+        s for s in sources
+        if s.stars >= 5
+        and not s.archived
+        and not s.fork
+        and has_paper_list(s.readme)
+    ]
+    
+    return sorted(filtered, key=lambda s: s.stars, reverse=True)[:10]
+```
+
+### 3.4 格式自动检测与解析
+
+```python
+class FormatDetector:
+    """自动检测上游仓库的数据格式"""
+    
+    @staticmethod
+    def detect(readme_content: str, repo_files: List[str]) -> str:
+        """检测 README 的格式类型"""
+        
+        # 1. 检查是否有 YAML/JSON 数据文件
+        if any(f.endswith(('.yaml', '.yml')) for f in repo_files):
+            return "yaml"
+        if any(f.endswith('.json') for f in repo_files):
+            return "json"
+        
+        # 2. 检查 README 中是否有 Markdown 表格
+        table_rows = re.findall(r'^\|.+\|.+\|.+$', readme_content, re.MULTILINE)
+        if len(table_rows) > 5:
+            return "markdown_table"
+        
+        # 3. 检查是否有 Markdown 列表
+        list_items = re.findall(r'^\s*-\s+\[.+\]\(.+\)', readme_content, re.MULTILINE)
+        if len(list_items) > 5:
+            return "markdown_list"
+        
+        return "unknown"
+```
+
+#### 支持的格式与解析器
+
+| 格式 | 覆盖率 | 解析器 | 说明 |
+|------|--------|--------|------|
+| Markdown 表格 | ~90% | `MarkdownTableParser` | 大多数 awesome 项目使用 |
+| Markdown 列表 | ~8% | `MarkdownListParser` | 少数项目使用 |
+| YAML 文件 | ~1% | `YamlParser` | 结构化数据，解析最简单 |
+| JSON 文件 | ~1% | `JsonParser` | 同上 |
+
+#### Markdown 表格解析器
+
+支持多种常见的 awesome 表格列名自动映射：
+
+```python
+COLUMN_MAP = {
+    "title": ["title", "paper", "name"],
+    "venue": ["venue", "conference", "journal", "publication"],
+    "year": ["year", "date"],
+    "links": ["links", "link", "code", "github", "resources"],
+}
+```
+
+### 3.5 配置示例
+
+```yaml
+# awesome.yaml — 用户只需填这个
+project:
+  name: "Awesome CAD Hub"
+  description: "A curated hub for CAD papers..."
+
+research:
+  keywords: ["CAD", "B-Rep", "parametric CAD"]
+  arxiv_categories: ["cs.CV", "cs.GR"]
+  date_from: "2020-01-01"
+
+  # 自动发现配置
+  auto_discover:
+    enabled: true
+    min_stars: 5           # 最少 star 数
+    max_sources: 10        # 最多吸纳几个上游源
+```
+
+### 3.6 设计决策
+
+| 决策 | 选择 | 理由 |
+|------|------|------|
+| 是否需要爬虫工具 | ❌ 不需要 | GitHub Search API 完全够用，AgentReach 等工具不适合批处理场景 |
+| 是否要求用户配 Token | ❌ 不要求 | 未认证 10次/分钟，我们的场景完全够用 |
+| 自动采纳还是用户确认 | ✅ 自动采纳 | 用户不需要知道有哪些上游源 |
+| 是否配置已知源 | ❌ 不配置 | 假设用户完全不知道有哪些上游源 |
+| 解析器优先级 | 表格 → 列表 → YAML/JSON | 覆盖 90%+ 的 awesome 项目 |
+
+### 3.7 风险与应对
+
+| 风险 | 应对 |
+|------|------|
+| 搜到不相关的仓库 | `min_stars` 过滤 + `has_paper_list()` 检测 README 是否包含论文列表 |
+| 仓库格式无法解析 | 报错跳过该仓库，不影响整体流程 |
+| 数据过时 | 以 arXiv 最新搜索为准，上游数据仅作为基础 |
+| GitHub API 限流 | 未认证 10次/分钟够用；配 Token 后 30次/分钟更充裕 |
+
+### 4.1 API Key 管理
 
 **核心原则：Key 永不进代码仓库。**
 
@@ -115,7 +306,7 @@ awesome-cad-hub/                ← 具体 awesome 站点（产物仓库）
 | GitHub Actions | GitHub Secrets（AES-256 加密） | 运行时注入环境变量，不出现在日志中 |
 | 本地开发 | `.env` 文件 | 已在 `.gitignore` 中，git 不会跟踪 |
 
-### 3.2 环境变量
+### 4.2 环境变量
 
 ```bash
 # .env.example — 用户复制为 .env 后填写
@@ -134,7 +325,7 @@ ARK_MODEL_NAME=deepseek-v4-flash-260425
 
 ---
 
-## 4. 实现计划
+## 5. 实现计划
 
 ### Phase 1: 核心框架 ✅ (已完成)
 
@@ -148,8 +339,11 @@ ARK_MODEL_NAME=deepseek-v4-flash-260425
 - [x] `arxiv-daily-researcher` git submodule
 - [x] README 和文档
 
-### Phase 2: 集成与测试（待完成）
+### Phase 2: 自动发现与吸纳（待实现）
 
+- [ ] `scripts/discover_sources.py` — GitHub API 搜索 + 过滤 + 排序
+- [ ] `scripts/ingest_source.py` — 格式检测 + 多格式解析器（表格/列表/YAML/JSON）
+- [ ] 集成到 `scripts/build.py` 全量构建流程
 - [ ] 用 `awesome-cad-hub` 配置跑通全量构建
 - [ ] 验证 LLM 分类质量
 - [ ] 验证每日更新流程
@@ -164,9 +358,9 @@ ARK_MODEL_NAME=deepseek-v4-flash-260425
 
 ---
 
-## 5. 使用指南
+## 6. 使用指南
 
-### 5.1 用户流程
+### 6.1 用户流程
 
 ```
 1. Fork awesome-hub-generator
@@ -177,7 +371,7 @@ ARK_MODEL_NAME=deepseek-v4-flash-260425
 6. 之后每天自动更新
 ```
 
-### 5.2 配置示例（CAD 方向）
+### 6.2 配置示例（CAD 方向）
 
 ```yaml
 project:
@@ -201,7 +395,7 @@ research:
 
 ---
 
-## 6. 技术选型
+## 7. 技术选型
 
 | 技术 | 用途 | 选择理由 |
 |------|------|---------|
@@ -215,13 +409,13 @@ research:
 
 ---
 
-## 7. 附录
+## 8. 附录
 
-### 7.1 相关开源项目调研
+### 8.1 相关开源项目调研
 
 见 [调研笔记](./docs/research-notes.md)（待创建）。
 
-### 7.2 关键词参考
+### 8.2 关键词参考
 
 不同研究方向的 arXiv 分类参考：
 

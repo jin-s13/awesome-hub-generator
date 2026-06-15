@@ -22,7 +22,7 @@ research:
     - "text-to-CAD"
     - "CAD program"
 
-  # arXiv 分类过滤（逗号分隔）
+  # arXiv 分类过滤
   arxiv_categories:
     - "cs.CV"
     - "cs.GR"
@@ -34,6 +34,13 @@ research:
 
   # 每日搜索的天数范围
   daily_search_days: 3
+
+  # 自动发现 GitHub 上已有的 awesome 项目
+  # 系统会自动搜索并吸纳相关数据，无需手动指定上游源
+  auto_discover:
+    enabled: true
+    min_stars: 5           # 最少 star 数，过滤低质量项目
+    max_sources: 10        # 最多吸纳几个上游源
 
 website:
   # 启用的页面
