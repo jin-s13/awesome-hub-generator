@@ -1,0 +1,29 @@
+---
+import type { Resource } from '../lib/data';
+const { item, mode = 'resource' } = Astro.props as { item: Resource; mode?: string };
+const title = item.name;
+const subtitle = item.type || item.category || '';
+const linkEntries = Object.entries(item.links || {}).filter(([, value]) => value);
+const sourceRepos = (item.sources || []).map((s) => s.repo).join(', ');
+const searchText = [title, subtitle, item.year, item.description, ...(item.tags || []), ...(item.language || []), ...(item.kernel || []), sourceRepos].join(' ').toLowerCase();
+---
+<article class="resource-card filter-item" data-search={searchText} data-category={subtitle} data-year={item.year || ''}>
+  <div class="resource-head">
+    <div>
+      <p class="eyebrow">{subtitle}{item.year ? ` · ${item.year}` : ''}</p>
+      <h3>{title}</h3>
+    </div>
+  </div>
+  <p>{item.description}</p>
+  <div class="tag-row">
+    {(item.tags || []).slice(0, 8).map((tag) => <span class="tag">{tag}</span>)}
+  </div>
+  {item.language && item.language.length > 0 && <p class="compact"><strong>Language:</strong> {item.language.join(', ')}</p>}
+  {item.kernel && item.kernel.length > 0 && <p class="compact"><strong>Kernel:</strong> {item.kernel.join(', ')}</p>}
+  <div class="link-row">
+    {linkEntries.map(([key, value]) => <a href={value} target="_blank" rel="noreferrer">{key}</a>)}
+  </div>
+  <div class="source-row" title={sourceRepos}>
+    {(item.sources || []).map((source) => <span>{source.repo.split('/')[0]}</span>)}
+  </div>
+</article>

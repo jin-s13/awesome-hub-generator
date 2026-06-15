@@ -1,0 +1,20 @@
+---
+import Base from '../layouts/Base.astro';
+import PaperCard from '../components/PaperCard.astro';
+import FilterBar from '../components/FilterBar.astro';
+import { getPapers, uniq } from '../lib/data';
+const papers = getPapers();
+const categories = uniq(papers.map((p) => p.category)).sort();
+const years = uniq(papers.map((p) => p.year)).sort((a, b) => b - a);
+---
+<Base title="Papers · {{PROJECT_NAME}}">
+  <section class="page-title">
+    <p class="eyebrow">Research index</p>
+    <h1>Papers</h1>
+    <p>Automatically collected and categorized papers from arXiv.</p>
+  </section>
+  <FilterBar categories={categories} years={years} />
+  <div class="card-grid papers-grid">
+    {papers.map((paper) => <PaperCard paper={paper} />)}
+  </div>
+</Base>

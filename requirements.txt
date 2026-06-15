@@ -1,0 +1,5 @@
+PyYAML>=6.0.2
+requests>=2.32.0
+python-slugify>=8.0.4
+rapidfuzz>=3.9.7
+arxiv>=2.1.3

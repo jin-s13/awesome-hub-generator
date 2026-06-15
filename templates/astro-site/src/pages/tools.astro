@@ -1,0 +1,19 @@
+---
+import Base from '../layouts/Base.astro';
+import ResourceCard from '../components/ResourceCard.astro';
+import FilterBar from '../components/FilterBar.astro';
+import { getTools, uniq } from '../lib/data';
+const tools = getTools();
+const categories = uniq(tools.map((t) => t.type || 'Tool')).sort();
+---
+<Base title="Tools · {{PROJECT_NAME}}">
+  <section class="page-title">
+    <p class="eyebrow">Open-source stack</p>
+    <h1>Tools</h1>
+    <p>Open-source software, frameworks, kernels, viewers, parsers, and AI-assisted tools.</p>
+  </section>
+  <FilterBar categories={categories} years={[]} placeholder="Search by tool, language, kernel, format, tag..." />
+  <div class="card-grid resource-grid">
+    {tools.map((item) => <ResourceCard item={item} />)}
+  </div>
+</Base>

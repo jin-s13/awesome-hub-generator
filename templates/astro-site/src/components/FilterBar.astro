@@ -1,0 +1,68 @@
+---
+const { categories = [], years = [], placeholder = 'Search by title, tag, venue, representation...' } = Astro.props;
+---
+<section class="filter-panel" aria-label="Filters">
+  <label class="search-box">
+    <span>Search</span>
+    <input id="searchInput" type="search" placeholder={placeholder} />
+  </label>
+  <label>
+    <span>Category</span>
+    <select id="categorySelect">
+      <option value="">All categories</option>
+      {categories.map((c: string) => <option value={c}>{c}</option>)}
+    </select>
+  </label>
+  {years.length > 0 && (
+    <label>
+      <span>Year</span>
+      <select id="yearSelect">
+        <option value="">All years</option>
+        {years.map((y: number) => <option value={String(y)}>{y}</option>)}
+      </select>
+    </label>
+  )}
+  <button id="resetFilters" type="button">Reset</button>
+  <p id="resultCount" class="result-count"></p>
+</section>
+
+<script>
+  const searchInput = document.getElementById('searchInput');
+  const categorySelect = document.getElementById('categorySelect');
+  const yearSelect = document.getElementById('yearSelect');
+  const resetButton = document.getElementById('resetFilters');
+  const resultCount = document.getElementById('resultCount');
+  const items = Array.from(document.querySelectorAll('.filter-item'));
+
+  function normalize(value) {
+    return String(value || '').trim().toLowerCase();
+  }
+
+  function applyFilters() {
+    const q = normalize(searchInput?.value);
+    const category = normalize(categorySelect?.value);
+    const year = normalize(yearSelect?.value);
+    let visible = 0;
+
+    for (const item of items) {
+      const haystack = normalize(item.dataset.search);
+      const itemCategory = normalize(item.dataset.category);
+      const itemYear = normalize(item.dataset.year);
+      const ok = (!q || haystack.includes(q)) && (!category || itemCategory === category) && (!year || itemYear === year);
+      item.toggleAttribute('hidden', !ok);
+      if (ok) visible += 1;
+    }
+    if (resultCount) resultCount.textContent = `${visible} / ${items.length} shown`;
+  }
+
+  searchInput?.addEventListener('input', applyFilters);
+  categorySelect?.addEventListener('change', applyFilters);
+  yearSelect?.addEventListener('change', applyFilters);
+  resetButton?.addEventListener('click', () => {
+    if (searchInput) searchInput.value = '';
+    if (categorySelect) categorySelect.value = '';
+    if (yearSelect) yearSelect.value = '';
+    applyFilters();
+  });
+  applyFilters();
+</script>

@@ -1,0 +1,73 @@
+---
+import Base from '../layouts/Base.astro';
+import PaperCard from '../components/PaperCard.astro';
+import ResourceCard from '../components/ResourceCard.astro';
+import { getPapers, getDatasets, getTools, getStats } from '../lib/data';
+const papers = getPapers();
+const datasets = getDatasets();
+const tools = getTools();
+const stats = getStats();
+const featured = papers.slice(0, 6);
+---
+<Base title="{{PROJECT_NAME}}">
+  <section class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">Research papers, datasets, and open-source tooling</p>
+      <h1>{{PROJECT_DESCRIPTION}}</h1>
+      <p>
+        Automatically curated from arXiv papers. Built with <a href="https://github.com/{{GENERATOR_REPO}}">awesome-hub-generator</a>.
+      </p>
+      <div class="hero-actions">
+        <a class="button primary" href="/papers">Explore papers</a>
+        <a class="button" href="/tools">Browse tools</a>
+      </div>
+    </div>
+    <div class="hero-panel">
+      <div class="stat-grid">
+        <div><strong>{stats.papers}</strong><span>Papers</span></div>
+        <div><strong>{stats.datasets}</strong><span>Datasets</span></div>
+        <div><strong>{stats.tools}</strong><span>Tools</span></div>
+        <div><strong>{stats.sources}</strong><span>Sources</span></div>
+      </div>
+      <p>Categories: {stats.categories.join(' · ')}</p>
+    </div>
+  </section>
+
+  <section class="section-head">
+    <div>
+      <p class="eyebrow">Latest papers</p>
+      <h2>Featured research</h2>
+    </div>
+    <a href="/papers">View all papers →</a>
+  </section>
+  <div class="card-grid papers-grid">
+    {featured.map((paper) => <PaperCard paper={paper} />)}
+  </div>
+
+  <section class="split-section">
+    <div>
+      <section class="section-head compact-head">
+        <div>
+          <p class="eyebrow">Datasets</p>
+          <h2>Dataset zoo</h2>
+        </div>
+        <a href="/datasets">View all →</a>
+      </section>
+      <div class="stack-list">
+        {datasets.slice(0, 3).map((item) => <ResourceCard item={item} />)}
+      </div>
+    </div>
+    <div>
+      <section class="section-head compact-head">
+        <div>
+          <p class="eyebrow">Tools</p>
+          <h2>Open-source stack</h2>
+        </div>
+        <a href="/tools">View all →</a>
+      </section>
+      <div class="stack-list">
+        {tools.slice(0, 3).map((item) => <ResourceCard item={item} />)}
+      </div>
+    </div>
+  </section>
+</Base>

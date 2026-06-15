@@ -1,0 +1,20 @@
+---
+import Base from '../layouts/Base.astro';
+import ResourceCard from '../components/ResourceCard.astro';
+import FilterBar from '../components/FilterBar.astro';
+import { getDatasets, uniq } from '../lib/data';
+const datasets = getDatasets();
+const categories = uniq(datasets.map((d) => d.category || 'Dataset')).sort();
+const years = uniq(datasets.map((d) => d.year).filter(Boolean) as number[]).sort((a, b) => b - a);
+---
+<Base title="Datasets · {{PROJECT_NAME}}">
+  <section class="page-title">
+    <p class="eyebrow">Dataset zoo</p>
+    <h1>Datasets</h1>
+    <p>Datasets grouped by representation and task.</p>
+  </section>
+  <FilterBar categories={categories} years={years} placeholder="Search by dataset, representation, task, source..." />
+  <div class="card-grid resource-grid">
+    {datasets.map((item) => <ResourceCard item={item} />)}
+  </div>
+</Base>

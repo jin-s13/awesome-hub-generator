@@ -1,0 +1,44 @@
+---
+const { title = '{{PROJECT_NAME}}', description = '{{PROJECT_DESCRIPTION}}' } = Astro.props;
+const nav = [
+  { href: '/', label: 'Home' },
+  { href: '/papers', label: 'Papers' },
+  { href: '/datasets', label: 'Datasets' },
+  { href: '/tools', label: 'Tools' }
+];
+const githubUrl = '{{GITHUB_URL}}';
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <title>{title}</title>
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="stylesheet" href="/styles/global.css" />
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="topbar">
+        <a href="/" class="brand" aria-label="{{PROJECT_NAME}} home">
+          <span class="brand-mark">⌁</span>
+          <span>
+            <strong>{{PROJECT_NAME}}</strong>
+            <small>Papers · Datasets · Tools</small>
+          </span>
+        </a>
+        <nav class="nav">
+          {nav.map((item) => <a class:list={[Astro.url.pathname === item.href && 'active']} href={item.href}>{item.label}</a>)}
+        </nav>
+        <a class="github-link" href={githubUrl} target="_blank" rel="noreferrer">GitHub</a>
+      </header>
+      <main>
+        <slot />
+      </main>
+      <footer class="footer">
+        {{FOOTER_HTML}}
+      </footer>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,28 @@
+---
+import type { Paper } from '../lib/data';
+const { paper } = Astro.props as { paper: Paper };
+const linkEntries = Object.entries(paper.links || {}).filter(([, value]) => value);
+const sourceRepos = (paper.sources || []).map((s) => s.repo).join(', ');
+const searchText = [paper.title, paper.venue, paper.year, paper.category, ...(paper.tags || []), ...(paper.representations || []), sourceRepos].join(' ').toLowerCase();
+---
+<article class="paper-card filter-item" data-search={searchText} data-category={paper.category} data-year={paper.year}>
+  <div class="preview-wrap">
+    <img src={paper.preview || '/assets/placeholder.svg'} alt={`Preview for ${paper.title}`} loading="lazy" />
+  </div>
+  <div class="paper-body">
+    <div class="paper-meta">
+      <span>{paper.venue} {paper.year}</span>
+      <span>{paper.category}</span>
+    </div>
+    <h3>{paper.title}</h3>
+    <div class="tag-row">
+      {(paper.tags || []).slice(0, 6).map((tag) => <span class="tag">{tag}</span>)}
+    </div>
+    <div class="link-row">
+      {linkEntries.map(([key, value]) => <a href={value} target="_blank" rel="noreferrer">{key}</a>)}
+    </div>
+    <div class="source-row" title={sourceRepos}>
+      {(paper.sources || []).map((source) => <span>{source.repo.split('/')[0]}</span>)}
+    </div>
+  </div>
+</article>

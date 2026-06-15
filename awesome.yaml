@@ -1,0 +1,59 @@
+# =============================================================================
+# awesome-hub-generator 配置文件
+# =============================================================================
+# Fork 本项目后，修改此文件即可生成你自己的 awesome 研究页面。
+# API Key 通过 .env 或 GitHub Secrets 注入，不会出现在此文件中。
+# =============================================================================
+
+project:
+  name: "Awesome CAD Hub"
+  description: "A curated hub for CAD papers, datasets, tools, and Neural CAD research."
+  github_url: "https://github.com/your-username/awesome-cad-hub"
+  site_url: "https://your-username.github.io/awesome-cad-hub"
+
+research:
+  # 搜索关键词（支持引号包裹短语）
+  keywords:
+    - "CAD"
+    - "B-Rep"
+    - "parametric CAD"
+    - "CAD generation"
+    - "CAD reconstruction"
+    - "text-to-CAD"
+    - "CAD program"
+
+  # arXiv 分类过滤（逗号分隔）
+  arxiv_categories:
+    - "cs.CV"
+    - "cs.GR"
+    - "cs.LG"
+    - "cs.AI"
+
+  # 全量构建的起始日期
+  date_from: "2020-01-01"
+
+  # 每日搜索的天数范围
+  daily_search_days: 3
+
+website:
+  # 启用的页面
+  sections:
+    papers: true
+    datasets: true
+    tools: true
+
+  # 导航链接
+  nav:
+    - label: "Home"
+      href: "/"
+    - label: "Papers"
+      href: "/papers"
+    - label: "Datasets"
+      href: "/datasets"
+    - label: "Tools"
+      href: "/tools"
+
+  # 页脚归属信息
+  footer: |
+    Built with <a href="https://github.com/your-username/awesome-hub-generator">awesome-hub-generator</a>.
+    Source attribution is preserved per entry.
