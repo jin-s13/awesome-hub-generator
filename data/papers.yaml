@@ -1,0 +1,468 @@
+- id: a-geometric-gaussian-mixture-representation-of-plane-curves-2026
+  title: A Geometric Gaussian Mixture Representation of Plane Curves
+  year: 2026
+  venue: arXiv
+  category: Abstraction
+  tags:
+  - probabilistic representation
+  - Gaussian mixture
+  - plane curves
+  - polygonal approximation
+  - uncertainty modeling
+  - geometric primitives
+  - CG
+  - AI
+  representations:
+  - Polygonal Approximation
+  - Gaussian Mixture
+  input_modalities:
+  - Curve
+  output_modalities:
+  - Probabilistic Representation
+  links:
+    paper: https://arxiv.org/abs/2606.06505v1
+  preview: /assets/placeholder.svg
+  sources:
+  - repo: arxiv
+    category: Abstraction
+- id: brepclip-contrastive-multimodal-pretraining-on-brep-primiti-2026
+  title: 'BRepCLIP: Contrastive Multimodal Pretraining on BRep Primitives for CAD Understanding'
+  year: 2026
+  venue: arXiv
+  category: Analysis
+  tags:
+  - BRep
+  - contrastive learning
+  - multimodal
+  - CAD understanding
+  - transformer
+  - representation learning
+  - CV
+  representations:
+  - B-Rep
+  input_modalities:
+  - B-Rep
+  - Text
+  - Image
+  output_modalities:
+  - Latent
+  links:
+    paper: https://arxiv.org/abs/2606.05515v1
+  preview: /assets/placeholder.svg
+  sources:
+  - repo: arxiv
+    category: Analysis
+- id: cad-to-ct-registration-of-cylindrical-objects-via-ellipse-ba-2026
+  title: CAD-to-CT Registration of Cylindrical Objects via Ellipse-Based Axis Estimation
+  year: 2026
+  venue: arXiv
+  category: Others
+  tags:
+  - CV
+  - CE
+  representations: []
+  input_modalities: []
+  output_modalities: []
+  links:
+    paper: https://arxiv.org/abs/2606.02935v1
+  preview: /assets/placeholder.svg
+  sources:
+  - repo: arxiv
+    category: Others
+- id: category-level-3d-correspondence-in-camera-space-via-morphab-2026
+  title: Category-Level 3D Correspondence in Camera Space via Morphable Object Priors
+  year: 2026
+  venue: arXiv
+  category: Others
+  tags:
+  - CV
+  representations: []
+  input_modalities: []
+  output_modalities: []
+  links:
+    paper: https://arxiv.org/abs/2605.28257v1
+    code: https://github.com/GenIntel/HouseCorr3D.
+  preview: /assets/placeholder.svg
+  sources:
+  - repo: arxiv
+    category: Others
+- id: comact-reframing-professional-software-manipulation-via-com-2026
+  title: 'ComAct: Reframing Professional Software Manipulation via COM-as-Action Paradigm'
+  year: 2026
+  venue: arXiv
+  category: Others
+  tags:
+  - SE
+  - AI
+  - CL
+  - CV
+  representations: []
+  input_modalities: []
+  output_modalities: []
+  links:
+    paper: https://arxiv.org/abs/2606.13239v1
+  preview: /assets/placeholder.svg
+  sources:
+  - repo: arxiv
+    category: Others
+- id: egoaero-learning-dexterous-manipulation-from-a-single-egoce-2026
+  title: 'EgoAERO: Learning Dexterous Manipulation from a Single Egocentric Video without Object Assets'
+  year: 2026
+  venue: arXiv
+  category: Others
+  tags:
+  - RO
+  - AI
+  representations: []
+  input_modalities: []
+  output_modalities: []
+  links:
+    paper: https://arxiv.org/abs/2606.08057v1
+  preview: /assets/placeholder.svg
+  sources:
+  - repo: arxiv
+    category: Others
+- id: garden-gravity-aligned-reconstruction-of-disentangled-envir-2026
+  title: 'GARDEN: Gravity-Aligned Reconstruction of Disentangled ENvironments from RGB images'
+  year: 2026
+  venue: arXiv
+  category: Reconstruction
+  tags:
+  - gravity-aligned
+  - scene factorization
+  - disentangled environments
+  - RGB reconstruction
+  - simulation-ready
+  - hybrid representation
+  - CV
+  representations:
+  - Mesh
+  - Hybrid Scene Representation
+  input_modalities:
+  - RGB Image
+  output_modalities:
+  - 3D Scene
+  - Mesh
+  links:
+    paper: https://arxiv.org/abs/2606.03921v1
+  preview: /assets/placeholder.svg
+  sources:
+  - repo: arxiv
+    category: Reconstruction
+- id: guidecad-a-lightweight-multimodal-framework-for-3d-cad-mode-2026
+  title: 'GuideCAD: A Lightweight Multimodal Framework for 3D CAD Model Generation via Prefix Embedding'
+  year: 2026
+  venue: arXiv
+  category: Generation
+  tags:
+  - multimodal
+  - prefix embedding
+  - CAD generation
+  - lightweight
+  - transformer
+  - visual-textual
+  - CV
+  representations:
+  - CAD Program
+  input_modalities:
+  - Text
+  - Image
+  output_modalities:
+  - CAD Program
+  links:
+    paper: https://arxiv.org/abs/2606.07024v1
+    code: https://github.com/mskimS2/GuideCAD
+  preview: /assets/placeholder.svg
+  sources:
+  - repo: arxiv
+    category: Generation
+- id: hylos-operability-contracts-for-model-native-spatial-intell-2026
+  title: 'Hylos: Operability Contracts for Model-Native Spatial Intelligence'
+  year: 2026
+  venue: arXiv
+  category: Others
+  tags:
+  - AI
+  representations: []
+  input_modalities: []
+  output_modalities: []
+  links:
+    paper: https://arxiv.org/abs/2605.24728v1
+  preview: /assets/placeholder.svg
+  sources:
+  - repo: arxiv
+    category: Others
+- id: intra-yolo-a-small-object-detection-model-for-caries-and-mo-2026
+  title: 'Intra-YOLO: A Small Object Detection Model for Caries and Molar-Incisor Hypomineralization in Intraoral Photography
+    Based on Transfer Learning with Reinforcement Learning'
+  year: 2026
+  venue: arXiv
+  category: Analysis
+  tags:
+  - caries
+  - MIH
+  - object detection
+  - intraoral photography
+  - transfer learning
+  - reinforcement learning
+  - CV
+  representations:
+  - Image
+  input_modalities:
+  - Image
+  output_modalities:
+  - Detection
+  links:
+    paper: https://arxiv.org/abs/2605.28157v1
+  preview: /assets/placeholder.svg
+  sources:
+  - repo: arxiv
+    category: Analysis
+- id: itercad-an-iterative-multimodal-agent-for-visually-grounded-2026
+  title: 'IterCAD: An Iterative Multimodal Agent for Visually-Grounded CAD Generation and Editing'
+  year: 2026
+  venue: arXiv
+  category: Generation
+  tags:
+  - Iterative
+  - Multimodal
+  - CAD Generation
+  - CAD Editing
+  - Agent
+  - Closed-loop
+  - AI
+  - CV
+  representations:
+  - Engineering Drawing
+  - CAD Program
+  input_modalities:
+  - Text
+  - Image
+  output_modalities:
+  - CAD Program
+  links:
+    paper: https://arxiv.org/abs/2606.13368v1
+  preview: /assets/placeholder.svg
+  sources:
+  - repo: arxiv
+    category: Generation
+- id: kdh-cad-knowledge-data-hybrid-cad-learning-under-data-scarc-2026
+  title: 'KDH-CAD: Knowledge-data hybrid CAD learning under data scarcity'
+  year: 2026
+  venue: arXiv
+  category: Others
+  tags:
+  - GR
+  - LG
+  representations: []
+  input_modalities: []
+  output_modalities: []
+  links:
+    paper: https://arxiv.org/abs/2606.01702v1
+  preview: /assets/placeholder.svg
+  sources:
+  - repo: arxiv
+    category: Others
+- id: muse-benchmarking-manufacturable-functional-and-assemblab-2026
+  title: 'MUSE: Benchmarking Manufacturable, Functional, and Assemblable Text-to-CAD Generation'
+  year: 2026
+  venue: arXiv
+  category: Analysis
+  tags:
+  - Text-to-CAD
+  - Benchmark
+  - B-Rep
+  - Assembly
+  - Manufacturability
+  - Functionality
+  - AI
+  representations:
+  - B-Rep
+  input_modalities:
+  - Text
+  output_modalities:
+  - CAD Model
+  links:
+    paper: https://arxiv.org/abs/2605.28579v2
+  preview: /assets/placeholder.svg
+  sources:
+  - repo: arxiv
+    category: Analysis
+- id: midsurfnet-learnable-face-pairing-and-interference-implicit-2026
+  title: 'MidSurfNet: Learnable Face Pairing and Interference Implicit Fields for Generalized Mid-surface Abstraction'
+  year: 2026
+  venue: arXiv
+  category: Abstraction
+  tags:
+  - mid-surface
+  - face pairing
+  - implicit fields
+  - thin-walled CAD
+  - finite element analysis
+  - neural network
+  - GR
+  - LG
+  representations:
+  - B-Rep
+  - Implicit Field
+  input_modalities:
+  - B-Rep
+  output_modalities:
+  - B-Rep
+  - Implicit Field
+  links:
+    paper: https://arxiv.org/abs/2606.01891v1
+  preview: /assets/placeholder.svg
+  sources:
+  - repo: arxiv
+    category: Abstraction
+- id: prior-availability-in-industrial-visual-sim-to-real-a-revie-2026
+  title: 'Prior Availability in Industrial Visual Sim-to-Real: A Review of CAD-Guided and CAD-Unavailable Regimes'
+  year: 2026
+  venue: arXiv
+  category: Survey
+  tags:
+  - sim-to-real
+  - domain adaptation
+  - industrial vision
+  - CAD
+  - synthetic data
+  - prior availability
+  - CV
+  - AI
+  representations:
+  - CAD Model
+  - RGB-D
+  - Normal Map
+  - Synthetic Image
+  input_modalities:
+  - Image
+  - Depth
+  - Normal
+  - Text
+  - CAD Model
+  output_modalities:
+  - Pose
+  - Segmentation
+  - Defect Detection
+  links:
+    paper: https://arxiv.org/abs/2605.30581v2
+  preview: /assets/placeholder.svg
+  sources:
+  - repo: arxiv
+    category: Survey
+- id: rethinking-continual-anomaly-detection-on-the-edge-benchmar-2026
+  title: 'Rethinking Continual Anomaly Detection on the Edge: Benchmarking Under Realistic Industrial Conditions'
+  year: 2026
+  venue: arXiv
+  category: Analysis
+  tags:
+  - continual anomaly detection
+  - edge deployment
+  - benchmarking
+  - industrial inspection
+  - DINOv3
+  - experience replay
+  - LG
+  - CV
+  representations:
+  - Image
+  input_modalities:
+  - Image
+  output_modalities:
+  - Anomaly Score
+  - Anomaly Mask
+  links:
+    paper: https://arxiv.org/abs/2605.24251v1
+  preview: /assets/placeholder.svg
+  sources:
+  - repo: arxiv
+    category: Analysis
+- id: scapo-self-supervised-category-level-articulated-pose-estim-2026
+  title: 'SCAPO: Self-Supervised Category-Level Articulated Pose Estimation from a Single 3D Observation'
+  year: 2026
+  venue: arXiv
+  category: Analysis
+  tags:
+  - self-supervised
+  - articulated pose estimation
+  - category-level
+  - single-view
+  - part segmentation
+  - joint parameters
+  - CV
+  representations:
+  - Point Cloud
+  input_modalities:
+  - RGB-D
+  output_modalities:
+  - Canonical Geometry
+  - Part Segmentation
+  - Joint Parameters
+  links:
+    paper: https://arxiv.org/abs/2606.01940v1
+  preview: /assets/placeholder.svg
+  sources:
+  - repo: arxiv
+    category: Analysis
+- id: summoning-the-oracle-to-slay-it-mitigating-look-ahead-bias-2026
+  title: 'Summoning the Oracle to Slay It: Mitigating Look-Ahead Bias in Financial Backtesting with Large Language Models'
+  year: 2026
+  venue: arXiv
+  category: Others
+  tags:
+  - AI
+  - CE
+  - LG
+  representations: []
+  input_modalities: []
+  output_modalities: []
+  links:
+    paper: https://arxiv.org/abs/2605.24564v1
+  preview: /assets/placeholder.svg
+  sources:
+  - repo: arxiv
+    category: Others
+- id: towards-active-real-to-twin-inspection-a-new-paradigm-for-z-2026
+  title: 'Towards Active Real-to-Twin Inspection: A New Paradigm for Zero-Shot Anomaly Detection'
+  year: 2026
+  venue: arXiv
+  category: Analysis
+  tags:
+  - zero-shot
+  - anomaly detection
+  - industrial inspection
+  - digital twin
+  - sim2real
+  - CAD
+  - CV
+  representations:
+  - CAD Model
+  - Digital Twin
+  input_modalities:
+  - Image
+  output_modalities:
+  - Anomaly Map
+  links:
+    paper: https://arxiv.org/abs/2605.25407v1
+  preview: /assets/placeholder.svg
+  sources:
+  - repo: arxiv
+    category: Analysis
+- id: unicad-a-unified-benchmark-and-universal-model-for-multi-mo-2026
+  title: 'UniCAD: A Unified Benchmark and Universal Model for Multi-Modal Multi-Task CAD'
+  year: 2026
+  venue: arXiv
+  category: Others
+  tags:
+  - CV
+  - AI
+  representations: []
+  input_modalities: []
+  output_modalities: []
+  links:
+    paper: https://arxiv.org/abs/2606.05058v1
+  preview: /assets/placeholder.svg
+  sources:
+  - repo: arxiv
+    category: Others

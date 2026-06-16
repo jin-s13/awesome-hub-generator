@@ -339,11 +339,11 @@ ARK_MODEL_NAME=deepseek-v4-flash-260425
 - [x] `arxiv-daily-researcher` git submodule
 - [x] README 和文档
 
-### Phase 2: 自动发现与吸纳（待实现）
+### Phase 2: 自动发现与吸纳 ✅ (已完成)
 
-- [ ] `scripts/discover_sources.py` — GitHub API 搜索 + 过滤 + 排序
-- [ ] `scripts/ingest_source.py` — 格式检测 + 多格式解析器（表格/列表/YAML/JSON）
-- [ ] 集成到 `scripts/build.py` 全量构建流程
+- [x] `scripts/discover_sources.py` — GitHub API 搜索 + 过滤 + 排序
+- [x] `scripts/ingest_source.py` — 格式检测 + 多格式解析器（表格/列表/YAML/JSON）
+- [x] 集成到 `scripts/build.py` 全量构建流程
 - [ ] 用 `awesome-cad-hub` 配置跑通全量构建
 - [ ] 验证 LLM 分类质量
 - [ ] 验证每日更新流程

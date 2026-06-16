@@ -68,14 +68,19 @@ awesome-hub-generator/
 ├── scripts/
 │   ├── build.py                 # 全量构建入口
 │   ├── update.py                # 每日更新入口
-│   └── sync.py                  # arXiv 适配器（搜索 + LLM 分类 + YAML 输出）
+│   ├── sync.py                  # arXiv 适配器（搜索 + LLM 分类 + YAML 输出）
+│   ├── discover_sources.py      # GitHub 自动发现上游 awesome 项目
+│   └── ingest_source.py         # 多格式数据解析器（表格/列表/YAML/JSON）
 ├── templates/
 │   └── astro-site/              # Astro 网站模板
 ├── .github/workflows/
 │   ├── full-build.yml           # 全量构建工作流
 │   └── daily-update.yml         # 每日更新工作流
+├── data/                        # 论文/数据集/工具数据
+│   ├── papers.yaml
+│   ├── datasets.yaml
+│   └── tools.yaml
 └── output/website/              # 生成的网站（自动创建）
-    ├── data/papers.yaml         # 论文数据
     ├── src/                     # Astro 源码
     └── dist/                    # 构建产物（部署到 GitHub Pages）
 ```

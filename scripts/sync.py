@@ -93,7 +93,7 @@ Return ONLY valid JSON, no other text."""
 
 # ---- arXiv API ----
 
-ARXIV_API_URL = "http://export.arxiv.org/api/query"
+ARXIV_API_URL = "https://export.arxiv.org/api/query"
 
 def search_arxiv(keywords: List[str], categories: List[str],
                  date_from: str = "", date_to: str = "",
@@ -106,19 +106,22 @@ def search_arxiv(keywords: List[str], categories: List[str],
             kw_parts.append(f'%22{kw.replace(" ", "+")}%22')
         else:
             kw_parts.append(kw)
-    query = "+AND+".join(f"all:{kw}" for kw in kw_parts)
+    query = "+OR+".join(f"all:{kw}" for kw in kw_parts)
 
     if categories:
         cat_parts = "+OR+".join(f"cat:{c}" for c in categories)
         query = f"({query})+AND+({cat_parts})"
 
     if date_from:
-        query += f"+AND+submittedDate:[{date_from}0000+TO+{date_to or datetime.now().strftime('%Y%m%d')}2359]"
+        # arXiv API 需要 YYYYMMDD 格式，去掉连字符
+        date_from_clean = date_from.replace("-", "")
+        date_to_clean = date_to.replace("-", "") if date_to else datetime.now().strftime("%Y%m%d")
+        query += f"+AND+submittedDate:[{date_from_clean}0000+TO+{date_to_clean}2359]"
 
     url = f"{ARXIV_API_URL}?search_query={query}&max_results={max_results}&sortBy=submittedDate&sortOrder=descending"
     print(f"[sync] arXiv API: {url[:120]}...")
 
-    resp = requests.get(url, timeout=60, headers={"User-Agent": "awesome-hub-generator/1.0"})
+    resp = requests.get(url, timeout=120, headers={"User-Agent": "awesome-hub-generator/1.0"})
     resp.raise_for_status()
 
     papers = []
@@ -176,7 +179,11 @@ def load_yaml(path: Path) -> List[Dict]:
 def save_yaml(path: Path, data: List[Dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False, width=120), encoding="utf-8")
-    print(f"[sync] 已写入 {path.relative_to(ROOT)} ({len(data)} 条)")
+    try:
+        rel = path.relative_to(ROOT)
+    except ValueError:
+        rel = path
+    print(f"[sync] 已写入 {rel} ({len(data)} 条)")
 
 
 def infer_venue(categories: List[str]) -> str:

@@ -9,7 +9,6 @@
     "preview": "astro preview"
   },
   "dependencies": {
-    "@astrojs/sitemap": "^3.2.1",
     "astro": "^4.16.18",
     "yaml": "^2.6.1"
   },
