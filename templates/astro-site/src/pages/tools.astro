@@ -3,17 +3,24 @@ import Base from '../layouts/Base.astro';
 import ResourceCard from '../components/ResourceCard.astro';
 import FilterBar from '../components/FilterBar.astro';
 import { getTools, uniq } from '../lib/data';
+import { useTranslations } from '../lib/i18n';
+import { getLang, type Lang } from '../lib/lang';
+
+const { lang: _lang } = Astro.props;
+const lang: Lang = _lang || getLang(Astro.url);
+const _t = useTranslations(lang);
+
 const tools = getTools();
 const categories = uniq(tools.map((t) => t.type || 'Tool')).sort();
 ---
-<Base title="Tools · {{PROJECT_NAME}}">
+<Base title={`${_t('pages.tools.title')} · {{PROJECT_NAME}}`} lang={lang}>
   <section class="page-title">
-    <p class="eyebrow">Open-source stack</p>
-    <h1>Tools</h1>
-    <p>Open-source software, frameworks, kernels, viewers, parsers, and AI-assisted tools.</p>
+    <p class="eyebrow">{_t('pages.tools.eyebrow')}</p>
+    <h1>{_t('pages.tools.title')}</h1>
+    <p>{_t('pages.tools.description')}</p>
   </section>
-  <FilterBar categories={categories} years={[]} placeholder="Search by tool, language, kernel, format, tag..." />
+  <FilterBar categories={categories} years={[]} placeholder={_t('filter.search') + ' by tool, language, kernel, format, tag...'} lang={lang} />
   <div class="card-grid resource-grid">
-    {tools.map((item) => <ResourceCard item={item} />)}
+    {tools.map((item) => <ResourceCard item={item} lang={lang} />)}
   </div>
 </Base>

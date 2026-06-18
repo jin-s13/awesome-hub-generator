@@ -3,6 +3,13 @@ import Base from '../layouts/Base.astro';
 import PaperCard from '../components/PaperCard.astro';
 import ResourceCard from '../components/ResourceCard.astro';
 import { getPapers, getDatasets, getTools, getStats } from '../lib/data';
+import { useTranslations } from '../lib/i18n';
+import { getLang, localizePath, type Lang } from '../lib/lang';
+
+const { lang: _lang } = Astro.props;
+const lang: Lang = _lang || getLang(Astro.url);
+const _t = useTranslations(lang);
+
 const papers = getPapers();
 const datasets = getDatasets();
 const tools = getTools();
@@ -11,64 +18,62 @@ const featured = papers
   .sort((a, b) => (b.score?.total || 0) - (a.score?.total || 0))
   .slice(0, 6);
 ---
-<Base title="{{PROJECT_NAME}}">
+<Base title="{{PROJECT_NAME}}" lang={lang}>
   <section class="hero">
     <div class="hero-copy">
-      <p class="eyebrow">Research papers, datasets, and open-source tooling</p>
+      <p class="eyebrow">{_t('hero.eyebrow')}</p>
       <h1>{{PROJECT_DESCRIPTION}}</h1>
-      <p>
-        Automatically curated from arXiv papers. Built with <a href="https://github.com/{{GENERATOR_REPO}}">awesome-hub-generator</a>.
-      </p>
+      <p set:html={_t('hero.description')}></p>
       <div class="hero-actions">
-        <a class="button primary" href="/papers">Explore papers</a>
-        <a class="button" href="/tools">Browse tools</a>
+        <a class="button primary" href={localizePath('/papers', lang)}>{_t('hero.explorePapers')}</a>
+        <a class="button" href={localizePath('/tools', lang)}>{_t('hero.browseTools')}</a>
       </div>
     </div>
     <div class="hero-panel">
       <div class="stat-grid">
-        <div><strong>{stats.papers}</strong><span>Papers</span></div>
-        <div><strong>{stats.datasets}</strong><span>Datasets</span></div>
-        <div><strong>{stats.tools}</strong><span>Tools</span></div>
-        <div><strong>{stats.sources}</strong><span>Sources</span></div>
+        <div><strong>{stats.papers}</strong><span>{_t('stat.papers')}</span></div>
+        <div><strong>{stats.datasets}</strong><span>{_t('stat.datasets')}</span></div>
+        <div><strong>{stats.tools}</strong><span>{_t('stat.tools')}</span></div>
+        <div><strong>{stats.sources}</strong><span>{_t('stat.sources')}</span></div>
       </div>
-      <p>Categories: {stats.categories.join(' · ')}</p>
+      <p>{_t('hero.categories')} {stats.categories.join(' · ')}</p>
     </div>
   </section>
 
   <section class="section-head">
     <div>
-      <p class="eyebrow">Latest papers</p>
-      <h2>Featured research</h2>
+      <p class="eyebrow">{_t('section.latestPapers')}</p>
+      <h2>{_t('section.featuredResearch')}</h2>
     </div>
-    <a href="/papers">View all papers →</a>
+    <a href={localizePath('/papers', lang)}>{_t('section.viewAllPapers')}</a>
   </section>
   <div class="card-grid papers-grid">
-    {featured.map((paper) => <PaperCard paper={paper} />)}
+    {featured.map((paper) => <PaperCard paper={paper} lang={lang} />)}
   </div>
 
   <section class="split-section">
     <div>
       <section class="section-head compact-head">
         <div>
-          <p class="eyebrow">Datasets</p>
-          <h2>Dataset zoo</h2>
+          <p class="eyebrow">{_t('section.datasets')}</p>
+          <h2>{_t('section.datasetZoo')}</h2>
         </div>
-        <a href="/datasets">View all →</a>
+        <a href={localizePath('/datasets', lang)}>{_t('section.viewAllDatasets')}</a>
       </section>
       <div class="stack-list">
-        {datasets.slice(0, 3).map((item) => <ResourceCard item={item} />)}
+        {datasets.slice(0, 3).map((item) => <ResourceCard item={item} lang={lang} />)}
       </div>
     </div>
     <div>
       <section class="section-head compact-head">
         <div>
-          <p class="eyebrow">Tools</p>
-          <h2>Open-source stack</h2>
+          <p class="eyebrow">{_t('section.tools')}</p>
+          <h2>{_t('section.openSourceStack')}</h2>
         </div>
-        <a href="/tools">View all →</a>
+        <a href={localizePath('/tools', lang)}>{_t('section.viewAllTools')}</a>
       </section>
       <div class="stack-list">
-        {tools.slice(0, 3).map((item) => <ResourceCard item={item} />)}
+        {tools.slice(0, 3).map((item) => <ResourceCard item={item} lang={lang} />)}
       </div>
     </div>
   </section>

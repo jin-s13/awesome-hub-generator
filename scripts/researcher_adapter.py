@@ -236,7 +236,17 @@ class ResearcherAdapter:
                     },
                     "tldr": score_resp.tldr if hasattr(score_resp, "tldr") else "",
                     "reasoning": score_resp.reasoning if hasattr(score_resp, "reasoning") else "",
+                    # Bilingual (Chinese) fields — mapped from scored dict if present
+                    "abstract_cn": scored.get("abstract_cn", ""),
                 }
+
+                # Map title_cn if available in scored dict
+                if scored.get("title_cn"):
+                    entry["title_cn"] = scored["title_cn"]
+
+                # Map tldr_cn if available in scored dict
+                if scored.get("tldr_cn"):
+                    entry["tldr_cn"] = scored["tldr_cn"]
 
                 # Attach deep analysis if available
                 if paper_id in analysis_lookup:

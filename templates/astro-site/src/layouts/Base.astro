@@ -1,16 +1,24 @@
 ---
-const { title = '{{PROJECT_NAME}}', description = '{{PROJECT_DESCRIPTION}}' } = Astro.props;
+import { t, useTranslations } from '../lib/i18n';
+import { getLang, localizePath, alternateLang, type Lang } from '../lib/lang';
+
+const { title = '{{PROJECT_NAME}}', description = '{{PROJECT_DESCRIPTION}}', lang: _lang } = Astro.props;
+const lang: Lang = _lang || getLang(Astro.url);
+const _t = useTranslations(lang);
+const altLang = alternateLang(lang);
+
 const nav = [
-  { href: '/', label: 'Home' },
-  { href: '/papers', label: 'Papers' },
-  { href: '/trends', label: 'Trends' },
-  { href: '/datasets', label: 'Datasets' },
-  { href: '/tools', label: 'Tools' }
+  { href: localizePath('/', lang), label: _t('nav.home') },
+  { href: localizePath('/papers', lang), label: _t('nav.papers') },
+  { href: localizePath('/trends', lang), label: _t('nav.trends') },
+  { href: localizePath('/datasets', lang), label: _t('nav.datasets') },
+  { href: localizePath('/tools', lang), label: _t('nav.tools') },
 ];
 const githubUrl = '{{GITHUB_URL}}';
+const altUrl = localizePath(Astro.url.pathname, altLang);
 ---
 <!doctype html>
-<html lang="en">
+<html lang={lang}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -22,17 +30,22 @@ const githubUrl = '{{GITHUB_URL}}';
   <body>
     <div class="site-shell">
       <header class="topbar">
-        <a href="/" class="brand" aria-label="{{PROJECT_NAME}} home">
+        <a href={localizePath('/', lang)} class="brand" aria-label="{{PROJECT_NAME}} home">
           <span class="brand-mark">⌁</span>
           <span>
             <strong>{{PROJECT_NAME}}</strong>
-            <small>Papers · Datasets · Tools</small>
+            <small>{_t('brand.subtitle')}</small>
           </span>
         </a>
         <nav class="nav">
-          {nav.map((item) => <a class:list={[Astro.url.pathname === item.href && 'active']} href={item.href}>{item.label}</a>)}
+          {nav.map((item) => (
+            <a class:list={[Astro.url.pathname === item.href && 'active']} href={item.href}>{item.label}</a>
+          ))}
         </nav>
-        <a class="github-link" href={githubUrl} target="_blank" rel="noreferrer">GitHub</a>
+        <div class="header-actions">
+          <a class="lang-switcher" href={altUrl}>{altLang === 'en' ? 'English' : '中文'}</a>
+          <a class="github-link" href={githubUrl} target="_blank" rel="noreferrer">{_t('nav.github')}</a>
+        </div>
       </header>
       <main>
         <slot />

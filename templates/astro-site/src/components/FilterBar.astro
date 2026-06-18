@@ -1,29 +1,34 @@
 ---
-const { categories = [], years = [], placeholder = 'Search by title, tag, venue, representation...' } = Astro.props;
+import { useTranslations } from '../lib/i18n';
+import { type Lang } from '../lib/lang';
+const { categories = [], years = [], placeholder = 'Search by title, tag, venue, representation...', lang: _lang = 'en' } = Astro.props as { categories?: string[]; years?: number[]; placeholder?: string; lang?: Lang };
+const lang: Lang = _lang;
+const _t = useTranslations(lang);
+const resultTemplate = _t('filter.resultCount');
 ---
 <section class="filter-panel" aria-label="Filters">
   <label class="search-box">
-    <span>Search</span>
+    <span>{_t('filter.search')}</span>
     <input id="searchInput" type="search" placeholder={placeholder} />
   </label>
   <label>
-    <span>Category</span>
+    <span>{_t('filter.category')}</span>
     <select id="categorySelect">
-      <option value="">All categories</option>
+      <option value="">{_t('filter.allCategories')}</option>
       {categories.map((c: string) => <option value={c}>{c}</option>)}
     </select>
   </label>
   {years.length > 0 && (
     <label>
-      <span>Year</span>
+      <span>{_t('filter.year')}</span>
       <select id="yearSelect">
-        <option value="">All years</option>
+        <option value="">{_t('filter.allYears')}</option>
         {years.map((y: number) => <option value={String(y)}>{y}</option>)}
       </select>
     </label>
   )}
-  <button id="resetFilters" type="button">Reset</button>
-  <p id="resultCount" class="result-count"></p>
+  <button id="resetFilters" type="button">{_t('filter.reset')}</button>
+  <p id="resultCount" class="result-count" data-result-template={resultTemplate}></p>
 </section>
 
 <script>
@@ -33,6 +38,7 @@ const { categories = [], years = [], placeholder = 'Search by title, tag, venue,
   const resetButton = document.getElementById('resetFilters');
   const resultCount = document.getElementById('resultCount');
   const items = Array.from(document.querySelectorAll('.filter-item'));
+  const resultTemplate = resultCount?.getAttribute('data-result-template') || '{0} / {1} shown';
 
   function normalize(value) {
     return String(value || '').trim().toLowerCase();
@@ -52,7 +58,7 @@ const { categories = [], years = [], placeholder = 'Search by title, tag, venue,
       item.toggleAttribute('hidden', !ok);
       if (ok) visible += 1;
     }
-    if (resultCount) resultCount.textContent = `${visible} / ${items.length} shown`;
+    if (resultCount) resultCount.textContent = resultTemplate.replace('{0}', String(visible)).replace('{1}', String(items.length));
   }
 
   searchInput?.addEventListener('input', applyFilters);

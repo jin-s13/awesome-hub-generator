@@ -69,7 +69,7 @@ def generate_site(config: dict, output_dir: Path) -> None:
         "PROJECT_DESCRIPTION": project.get("description", ""),
         "SITE_URL": project.get("site_url", "https://example.github.io/awesome-hub"),
         "GITHUB_URL": project.get("github_url", "https://github.com/example/awesome-hub"),
-        "GENERATOR_REPO": "your-username/awesome-hub-generator",
+        "GENERATOR_REPO": project.get("generator_repo", "your-username/awesome-hub-generator"),
         "FOOTER_HTML": website.get("footer", "Built with awesome-hub-generator."),
     }
 

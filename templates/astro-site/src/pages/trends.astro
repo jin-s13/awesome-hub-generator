@@ -1,6 +1,12 @@
 ---
 import Base from '../layouts/Base.astro';
 import { getPapers, uniq } from '../lib/data';
+import { useTranslations } from '../lib/i18n';
+import { getLang, type Lang } from '../lib/lang';
+
+const { lang: _lang } = Astro.props;
+const lang: Lang = _lang || getLang(Astro.url);
+const _t = useTranslations(lang);
 
 const papers = getPapers();
 
@@ -43,17 +49,17 @@ const yearEntries = Object.entries(yearCounts).sort(([a], [b]) => b.localeCompar
 const maxYearCount = Math.max(...yearEntries.map(([, c]) => c), 1);
 ---
 
-<Base title="Trends · {{PROJECT_NAME}}">
+<Base title={`${_t('pages.trends.title')} · {{PROJECT_NAME}}`} lang={lang}>
   <section class="page-title">
-    <p class="eyebrow">Research landscape</p>
-    <h1>Trends</h1>
-    <p>Keyword frequency, scoring patterns, and year distribution across {papers.length} papers.</p>
+    <p class="eyebrow">{_t('pages.trends.eyebrow')}</p>
+    <h1>{_t('pages.trends.title')}</h1>
+    <p>{_t('pages.trends.description', papers.length)}</p>
   </section>
 
   {topKeywords.length > 0 && (
     <section class="trend-section">
-      <h2>关键词评分趋势</h2>
-      <p class="trend-subtitle">基于 LLM 评分的加权关键词分布（总分越高表示该方向论文越受关注）</p>
+      <h2>{_t('trends.keywordScoreTitle')}</h2>
+      <p class="trend-subtitle">{_t('trends.keywordScoreSubtitle')}</p>
       <div class="trend-chart">
         {topKeywords.map(([kw, { count, total }]) => (
           <div class="trend-bar-row">
@@ -65,7 +71,7 @@ const maxYearCount = Math.max(...yearEntries.map(([, c]) => c), 1);
               ></div>
             </div>
             <span class="trend-value">{total.toFixed(1)}</span>
-            <span class="trend-count">({count} papers)</span>
+            <span class="trend-count">({count} {_t('trends.papers')})</span>
           </div>
         ))}
       </div>
@@ -73,8 +79,8 @@ const maxYearCount = Math.max(...yearEntries.map(([, c]) => c), 1);
   )}
 
   <section class="trend-section">
-    <h2>标签频率 Top 30</h2>
-    <p class="trend-subtitle">论文标签中出现频率最高的关键词</p>
+    <h2>{_t('trends.tagFrequencyTitle')}</h2>
+    <p class="trend-subtitle">{_t('trends.tagFrequencySubtitle')}</p>
     <div class="trend-chart">
       {topTags.map(([tag, count]) => (
         <div class="trend-bar-row">
@@ -92,8 +98,8 @@ const maxYearCount = Math.max(...yearEntries.map(([, c]) => c), 1);
   </section>
 
   <section class="trend-section">
-    <h2>年份分布</h2>
-    <p class="trend-subtitle">论文按年份分布情况</p>
+    <h2>{_t('trends.yearDistributionTitle')}</h2>
+    <p class="trend-subtitle">{_t('trends.yearDistributionSubtitle')}</p>
     <div class="trend-chart">
       {yearEntries.map(([year, count]) => (
         <div class="trend-bar-row">

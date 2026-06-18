@@ -1,10 +1,19 @@
 ---
 import type { Paper } from '../lib/data';
-const { paper } = Astro.props as { paper: Paper };
+import { useTranslations } from '../lib/i18n';
+import { localizePath, type Lang } from '../lib/lang';
+const { paper, lang: _lang = 'en' } = Astro.props as { paper: Paper; lang?: Lang };
+const lang: Lang = _lang;
+const _t = useTranslations(lang);
 const linkEntries = Object.entries(paper.links || {}).filter(([, value]) => value);
 const sourceRepos = (paper.sources || []).map((s) => s.repo).join(', ');
+
+// Bilingual title and TLDR
+const displayTitle = (lang === 'zh' && paper.title_cn) ? paper.title_cn : paper.title;
+const displayTldr = (lang === 'zh' && paper.tldr_cn) ? paper.tldr_cn : (paper.tldr || '');
+
 const searchText = [paper.title, paper.venue, paper.year, paper.category, ...(paper.tags || []), ...(paper.representations || []), sourceRepos].join(' ').toLowerCase();
-const interpPath = `/papers/${paper.id}`;
+const interpPath = localizePath(`/papers/${paper.id}`, lang);
 
 // Score badge
 const score = paper.score?.total;
@@ -14,9 +23,7 @@ const scoreLevel = score != null
     : 'low'
   : null;
 
-// TLDR
-const tldr = paper.tldr || '';
-const detailUrl = `/papers/${paper.id}`;
+const detailUrl = localizePath(`/papers/${paper.id}`, lang);
 ---
 <article class="paper-card filter-item" data-search={searchText} data-category={paper.category} data-year={paper.year}>
   <a href={detailUrl} class="preview-wrap">
@@ -28,15 +35,15 @@ const detailUrl = `/papers/${paper.id}`;
       {scoreLevel && <span class={`score-badge score-${scoreLevel}`}>{score}</span>}
       <span>{paper.category}</span>
     </div>
-    <h3><a href={detailUrl}>{paper.title}</a></h3>
-    {tldr && <p class="paper-tldr">{tldr}</p>}
+    <h3><a href={detailUrl}>{displayTitle}</a></h3>
+    {displayTldr && <p class="paper-tldr">{displayTldr}</p>}
     <div class="tag-row">
       {(paper.tags || []).slice(0, 6).map((tag) => <span class="tag">{tag}</span>)}
     </div>
     <div class="link-row">
       {linkEntries.map(([key, value]) => <a href={value} target="_blank" rel="noreferrer">{key}</a>)}
-      <a href={interpPath} class="interpret-link">解读</a>
-      <a href={detailUrl} class="detail-link">详情</a>
+      <a href={interpPath} class="interpret-link">{_t('paperCard.analysis')}</a>
+      <a href={detailUrl} class="detail-link">{_t('paperCard.details')}</a>
     </div>
     <div class="source-row" title={sourceRepos}>
       {(paper.sources || []).map((source) => <span>{source.repo.split('/')[0]}</span>)}

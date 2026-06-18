@@ -9,3 +9,4 @@ output/
 resource/
 arxiv-daily-researcher/data/
 arxiv-daily-researcher/.env
+tmp/

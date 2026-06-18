@@ -1,6 +1,10 @@
 ---
 import type { Resource } from '../lib/data';
-const { item, mode = 'resource' } = Astro.props as { item: Resource; mode?: string };
+import { useTranslations } from '../lib/i18n';
+import { type Lang } from '../lib/lang';
+const { item, mode = 'resource', lang: _lang = 'en' } = Astro.props as { item: Resource; mode?: string; lang?: Lang };
+const lang: Lang = _lang;
+const _t = useTranslations(lang);
 const title = item.name;
 const subtitle = item.type || item.category || '';
 const linkEntries = Object.entries(item.links || {}).filter(([, value]) => value);
@@ -18,8 +22,8 @@ const searchText = [title, subtitle, item.year, item.description, ...(item.tags 
   <div class="tag-row">
     {(item.tags || []).slice(0, 8).map((tag) => <span class="tag">{tag}</span>)}
   </div>
-  {item.language && item.language.length > 0 && <p class="compact"><strong>Language:</strong> {item.language.join(', ')}</p>}
-  {item.kernel && item.kernel.length > 0 && <p class="compact"><strong>Kernel:</strong> {item.kernel.join(', ')}</p>}
+  {item.language && item.language.length > 0 && <p class="compact"><strong>{_t('resource.language')}</strong> {item.language.join(', ')}</p>}
+  {item.kernel && item.kernel.length > 0 && <p class="compact"><strong>{_t('resource.kernel')}</strong> {item.kernel.join(', ')}</p>}
   <div class="link-row">
     {linkEntries.map(([key, value]) => <a href={value} target="_blank" rel="noreferrer">{key}</a>)}
   </div>

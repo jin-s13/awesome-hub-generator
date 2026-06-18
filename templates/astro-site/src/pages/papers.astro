@@ -3,18 +3,25 @@ import Base from '../layouts/Base.astro';
 import PaperCard from '../components/PaperCard.astro';
 import FilterBar from '../components/FilterBar.astro';
 import { getPapers, uniq } from '../lib/data';
+import { useTranslations } from '../lib/i18n';
+import { getLang, type Lang } from '../lib/lang';
+
+const { lang: _lang } = Astro.props;
+const lang: Lang = _lang || getLang(Astro.url);
+const _t = useTranslations(lang);
+
 const papers = getPapers();
 const categories = uniq(papers.map((p) => p.category)).sort();
 const years = uniq(papers.map((p) => p.year)).sort((a, b) => b - a);
 ---
-<Base title="Papers · {{PROJECT_NAME}}">
+<Base title={`${_t('pages.papers.title')} · {{PROJECT_NAME}}`} lang={lang}>
   <section class="page-title">
-    <p class="eyebrow">Research index</p>
-    <h1>Papers</h1>
-    <p>Automatically collected and categorized papers from arXiv.</p>
+    <p class="eyebrow">{_t('pages.papers.eyebrow')}</p>
+    <h1>{_t('pages.papers.title')}</h1>
+    <p>{_t('pages.papers.description')}</p>
   </section>
-  <FilterBar categories={categories} years={years} />
+  <FilterBar categories={categories} years={years} lang={lang} />
   <div class="card-grid papers-grid">
-    {papers.map((paper) => <PaperCard paper={paper} />)}
+    {papers.map((paper) => <PaperCard paper={paper} lang={lang} />)}
   </div>
 </Base>

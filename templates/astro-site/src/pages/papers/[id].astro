@@ -1,6 +1,8 @@
 ---
 import Base from '../../layouts/Base.astro';
 import { getPapers } from '../../lib/data';
+import { useTranslations } from '../../lib/i18n';
+import { getLang, localizePath, type Lang } from '../../lib/lang';
 
 export async function getStaticPaths() {
   const papers = getPapers();
@@ -10,10 +12,19 @@ export async function getStaticPaths() {
   }));
 }
 
-const { paper } = Astro.props;
+const { paper, lang: _lang } = Astro.props;
+const lang: Lang = _lang || getLang(Astro.url);
+const _t = useTranslations(lang);
+
+// Bilingual content
+const displayTitle = (lang === 'zh' && paper.title_cn) ? paper.title_cn : paper.title;
+const displayTldr = (lang === 'zh' && paper.tldr_cn) ? paper.tldr_cn : (paper.tldr || '');
+const displayReasoning = (lang === 'zh' && paper.reasoning_cn) ? paper.reasoning_cn : (paper.reasoning || '');
+const displayAnalysis = (lang === 'zh' && paper.analysis_cn) ? paper.analysis_cn : (paper.analysis || null);
+
 const linkEntries = Object.entries(paper.links || {}).filter(([, value]) => value);
 const score = paper.score;
-const analysis = paper.analysis;
+const analysis = displayAnalysis;
 const scoreLevel = score?.total != null
   ? score.total >= 80 ? 'high'
     : score.total >= 60 ? 'medium'
@@ -25,12 +36,12 @@ const keywordEntries = score?.keyword_scores
 const maxKeywordScore = Math.max(...keywordEntries.map(([, v]) => v), 1);
 ---
 
-<Base title={`${paper.title} · {{PROJECT_NAME}}`}>
+<Base title={`${paper.title} · {{PROJECT_NAME}}`} lang={lang}>
   <section class="paper-detail">
-    <a href="/papers" class="back-link">&larr; Back to papers</a>
+    <a href={localizePath('/papers', lang)} class="back-link">{_t('paper.backToPapers')}</a>
 
     <div class="detail-header">
-      <h1>{paper.title}</h1>
+      <h1>{displayTitle}</h1>
       <div class="detail-meta">
         <span>{paper.venue} {paper.year}</span>
         {scoreLevel && <span class={`score-badge score-${scoreLevel}`}>{score.total}</span>}
@@ -38,23 +49,23 @@ const maxKeywordScore = Math.max(...keywordEntries.map(([, v]) => v), 1);
       </div>
     </div>
 
-    {paper.tldr && (
+    {displayTldr && (
       <div class="detail-tldr">
-        <h2>TLDR</h2>
-        <p>{paper.tldr}</p>
+        <h2>{_t('paper.tldr')}</h2>
+        <p>{displayTldr}</p>
       </div>
     )}
 
-    {paper.reasoning && (
+    {displayReasoning && (
       <div class="detail-reasoning">
-        <h2>评分理由</h2>
-        <p>{paper.reasoning}</p>
+        <h2>{_t('paper.reasoning')}</h2>
+        <p>{displayReasoning}</p>
       </div>
     )}
 
     {keywordEntries.length > 0 && (
       <div class="detail-keywords">
-        <h2>关键词评分</h2>
+        <h2>{_t('paper.keywordScores')}</h2>
         <div class="keyword-bars">
           {keywordEntries.map(([kw, sc]) => (
             <div class="keyword-bar-row">
@@ -71,11 +82,11 @@ const maxKeywordScore = Math.max(...keywordEntries.map(([, v]) => v), 1);
 
     {analysis && (
       <div class="detail-analysis">
-        <h2>深度分析</h2>
+        <h2>{_t('paper.deepAnalysis')}</h2>
 
         {analysis.innovations && analysis.innovations.length > 0 && (
           <div class="analysis-section">
-            <h3>创新点</h3>
+            <h3>{_t('paper.innovations')}</h3>
             <ul>
               {analysis.innovations.map((item) => <li>{item}</li>)}
             </ul>
@@ -84,21 +95,21 @@ const maxKeywordScore = Math.max(...keywordEntries.map(([, v]) => v), 1);
 
         {analysis.methodology && (
           <div class="analysis-section">
-            <h3>方法</h3>
+            <h3>{_t('paper.methodology')}</h3>
             <p>{analysis.methodology}</p>
           </div>
         )}
 
         {analysis.key_results && (
           <div class="analysis-section">
-            <h3>关键结果</h3>
+            <h3>{_t('paper.keyResults')}</h3>
             <p>{analysis.key_results}</p>
           </div>
         )}
 
         {analysis.limitations && analysis.limitations.length > 0 && (
           <div class="analysis-section">
-            <h3>局限性</h3>
+            <h3>{_t('paper.limitations')}</h3>
             <ul>
               {analysis.limitations.map((item) => <li>{item}</li>)}
             </ul>
@@ -107,7 +118,7 @@ const maxKeywordScore = Math.max(...keywordEntries.map(([, v]) => v), 1);
 
         {analysis.tech_stack && analysis.tech_stack.length > 0 && (
           <div class="analysis-section">
-            <h3>技术栈</h3>
+            <h3>{_t('paper.techStack')}</h3>
             <div class="tag-row">
               {analysis.tech_stack.map((t) => <span class="tag">{t}</span>)}
             </div>
@@ -117,14 +128,14 @@ const maxKeywordScore = Math.max(...keywordEntries.map(([, v]) => v), 1);
     )}
 
     <div class="detail-links">
-      <h2>资源</h2>
+      <h2>{_t('paper.resources')}</h2>
       <div class="link-row">
         {linkEntries.map(([key, value]) => <a href={value} target="_blank" rel="noreferrer">{key}</a>)}
       </div>
     </div>
 
     <div class="detail-tags">
-      <h2>标签</h2>
+      <h2>{_t('paper.tags')}</h2>
       <div class="tag-row">
         {(paper.tags || []).map((tag) => <span class="tag">{tag}</span>)}
       </div>

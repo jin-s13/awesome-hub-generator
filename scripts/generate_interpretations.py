@@ -5,6 +5,7 @@ Uses the LLM (ARK API) to:
 1. Generate TLDR (one-sentence summary)
 2. Generate reasoning (why this paper scored well/poorly)
 3. Generate deep analysis (innovations, methodology, limitations) — uses SMART_LLM
+4. Generate Chinese translations (title_cn, abstract_cn, tldr_cn, analysis_cn)
 
 Papers are processed in batch, only those missing interpretation fields.
 """
@@ -166,6 +167,133 @@ Return ONLY valid JSON, no other text."""
     return {}
 
 
+def translate_title_abstract(title: str, abstract: str) -> Dict:
+    """
+    Translate paper title and abstract to Chinese.
+
+    Returns: {"title_cn": str, "abstract_cn": str}
+    """
+    if not title and not abstract:
+        return {"title_cn": "", "abstract_cn": ""}
+
+    prompt = f"""You are a professional academic translator. Translate the following paper title and abstract from English to Chinese.
+
+Requirements:
+1. Keep academic terminology accurate
+2. Make the translation fluent and natural in Chinese
+3. Keep proper nouns (model names, dataset names, etc.) in English on first occurrence, optionally annotating with Chinese
+
+Title: {title}
+
+Abstract: {abstract[:2000]}
+
+Return ONLY valid JSON, no other text:
+{{
+  "title_cn": "Chinese translation of the title",
+  "abstract_cn": "Chinese translation of the abstract"
+}}"""
+
+    raw = _llm_chat([{"role": "user", "content": prompt}], max_tokens=2048)
+    if not raw:
+        return {"title_cn": "", "abstract_cn": ""}
+
+    result = _extract_json(raw)
+    if result:
+        return {
+            "title_cn": result.get("title_cn", ""),
+            "abstract_cn": result.get("abstract_cn", ""),
+        }
+    return {"title_cn": "", "abstract_cn": ""}
+
+
+def generate_tldr_cn(title: str, abstract: str, tldr_en: str) -> str:
+    """
+    Generate a Chinese TLDR (one-sentence summary) based on the English TLDR and paper content.
+
+    Returns: Chinese TLDR string, or empty string on failure.
+    """
+    if not tldr_en:
+        return ""
+
+    prompt = f"""You are a research paper summarizer. Based on the paper's English TLDR and content, generate a concise one-sentence summary in Chinese (max 50 Chinese characters).
+
+English TLDR: {tldr_en}
+
+Title: {title}
+Abstract: {abstract[:1000]}
+
+Return ONLY the Chinese summary, no JSON, no explanation, no English."""
+    raw = _llm_chat([{"role": "user", "content": prompt}], max_tokens=256)
+    return raw.strip() if raw else ""
+
+
+def translate_analysis(analysis: Dict) -> Dict:
+    """
+    Translate analysis fields (innovations, methodology, key_results, limitations, tech_stack)
+    to Chinese.
+
+    Returns: dict with Chinese translations, preserving the same structure.
+    """
+    if not analysis:
+        return {}
+
+    innovations = analysis.get("innovations", [])
+    methodology = analysis.get("methodology", "")
+    key_results = analysis.get("key_results", "")
+    limitations = analysis.get("limitations", [])
+    tech_stack = analysis.get("tech_stack", [])
+
+    innovations_str = "\n".join(f"- {i}" for i in innovations) if innovations else "None"
+    limitations_str = "\n".join(f"- {l}" for l in limitations) if limitations else "None"
+    tech_stack_str = ", ".join(tech_stack) if tech_stack else "None"
+
+    prompt = f"""You are a professional academic translator. Translate the following research paper analysis from English to Chinese.
+
+Requirements:
+1. Keep academic terminology accurate
+2. Make the translation fluent and natural in Chinese
+3. Keep proper nouns (model names, dataset names, technology names) in English
+
+Innovations:
+{innovations_str}
+
+Methodology:
+{methodology}
+
+Key Results:
+{key_results}
+
+Limitations:
+{limitations_str}
+
+Tech Stack:
+{tech_stack_str}
+
+Return ONLY valid JSON, no other text:
+{{
+  "innovations": ["translated innovation 1", "translated innovation 2"],
+  "methodology": "translated methodology",
+  "key_results": "translated key results",
+  "limitations": ["translated limitation 1", "translated limitation 2"],
+  "tech_stack": ["tech1", "tech2"]
+}}"""
+
+    raw = _llm_chat([{"role": "user", "content": prompt}], max_tokens=2048)
+    if not raw:
+        return {}
+
+    result = _extract_json(raw)
+    if result:
+        return {
+            "innovations": result.get("innovations", []),
+            "methodology": result.get("methodology", ""),
+            "key_results": result.get("key_results", ""),
+            "limitations": result.get("limitations", []),
+            "tech_stack": result.get("tech_stack", []),
+        }
+    return {}
+
+
 def needs_interpretation(paper: Dict) -> bool:
     """Check if a paper needs interpretation."""
     return not paper.get("tldr") or not paper.get("reasoning")
@@ -195,54 +323,111 @@ def main():
     to_process = [p for p in papers if needs_interpretation(p)]
     if not to_process:
         logger.info("All papers already have interpretations")
+    else:
+        logger.info(f"Generating interpretations for {len(to_process)} papers...")
+
+        updated = 0
+        for i, paper in enumerate(to_process):
+            title = paper.get("title", "")
+            abstract = paper.get("abstract", "")
+            if not title or not abstract:
+                continue
+
+            logger.info(f"  [{i+1}/{len(to_process)}] {title[:60]}...")
+
+            # Step 1: TLDR + reasoning
+            result = generate_tldr_and_reasoning(title, abstract, keywords)
+            if result.get("tldr"):
+                paper["tldr"] = result["tldr"]
+            if result.get("reasoning"):
+                paper["reasoning"] = result["reasoning"]
+            if result.get("keyword_scores"):
+                if "score" not in paper:
+                    paper["score"] = {}
+                paper["score"]["keyword_scores"] = result["keyword_scores"]
+                # Calculate total score
+                scores = result["keyword_scores"].values()
+                if scores:
+                    paper["score"]["total"] = round(sum(scores), 1)
+
+            # Step 2: Deep analysis (only for papers with good scores)
+            total_score = paper.get("score", {}).get("total", 0)
+            if total_score >= 30 and not paper.get("analysis"):
+                logger.debug(f"    Generating deep analysis...")
+                analysis = generate_deep_analysis(title, abstract)
+                if analysis:
+                    paper["analysis"] = analysis
+
+            updated += 1
+            time.sleep(0.5)  # Rate limit
+
+        # Save
+        if updated > 0:
+            papers_path.write_text(
+                yaml.dump(papers, allow_unicode=True, sort_keys=False, default_flow_style=False),
+                encoding="utf-8",
+            )
+            logger.info(f"Updated {updated} papers with interpretations")
+
+        logger.info(f"Done: {updated} papers interpreted")
+
+    # =====================================================================
+    # Step 3: Generate Chinese translations for papers missing Chinese fields
+    # =====================================================================
+    papers = yaml.safe_load(papers_path.read_text(encoding="utf-8"))
+    if not isinstance(papers, list):
         return
 
-    logger.info(f"Generating interpretations for {len(to_process)} papers...")
+    papers_needing_cn = [
+        p for p in papers
+        if p.get("title") and (not p.get("title_cn") or not p.get("abstract_cn"))
+    ]
+    if not papers_needing_cn:
+        logger.info("All papers already have Chinese translations")
+    else:
+        logger.info(f"Generating Chinese translations for {len(papers_needing_cn)} papers...")
 
-    updated = 0
-    for i, paper in enumerate(to_process):
-        title = paper.get("title", "")
-        abstract = paper.get("abstract", "")
-        if not title or not abstract:
-            continue
+        cn_updated = 0
+        for i, paper in enumerate(papers_needing_cn):
+            title = paper.get("title", "")
+            abstract = paper.get("abstract", "")
+            if not title or not abstract:
+                continue
 
-        logger.info(f"  [{i+1}/{len(to_process)}] {title[:60]}...")
+            logger.info(f"  [CN {i+1}/{len(papers_needing_cn)}] {title[:60]}...")
 
-        # Step 1: TLDR + reasoning
-        result = generate_tldr_and_reasoning(title, abstract, keywords)
-        if result.get("tldr"):
-            paper["tldr"] = result["tldr"]
-        if result.get("reasoning"):
-            paper["reasoning"] = result["reasoning"]
-        if result.get("keyword_scores"):
-            if "score" not in paper:
-                paper["score"] = {}
-            paper["score"]["keyword_scores"] = result["keyword_scores"]
-            # Calculate total score
-            scores = result["keyword_scores"].values()
-            if scores:
-                paper["score"]["total"] = round(sum(scores), 1)
+            # Translate title and abstract
+            trans_result = translate_title_abstract(title, abstract)
+            if trans_result.get("title_cn"):
+                paper["title_cn"] = trans_result["title_cn"]
+            if trans_result.get("abstract_cn"):
+                paper["abstract_cn"] = trans_result["abstract_cn"]
 
-        # Step 2: Deep analysis (only for papers with good scores)
-        total_score = paper.get("score", {}).get("total", 0)
-        if total_score >= 30 and not paper.get("analysis"):
-            logger.debug(f"    Generating deep analysis...")
-            analysis = generate_deep_analysis(title, abstract)
-            if analysis:
-                paper["analysis"] = analysis
+            # Generate Chinese TLDR if English TLDR exists
+            tldr_en = paper.get("tldr", "")
+            if tldr_en and not paper.get("tldr_cn"):
+                tldr_cn = generate_tldr_cn(title, abstract, tldr_en)
+                if tldr_cn:
+                    paper["tldr_cn"] = tldr_cn
 
-        updated += 1
-        time.sleep(0.5)  # Rate limit
+            # Translate analysis if it exists and no Chinese analysis yet
+            analysis = paper.get("analysis")
+            if analysis and not paper.get("analysis_cn"):
+                analysis_cn = translate_analysis(analysis)
+                if analysis_cn:
+                    paper["analysis_cn"] = analysis_cn
 
-    # Save
-    if updated > 0:
-        papers_path.write_text(
-            yaml.dump(papers, allow_unicode=True, sort_keys=False, default_flow_style=False),
-            encoding="utf-8",
-        )
-        logger.info(f"Updated {updated} papers with interpretations")
+            cn_updated += 1
+            time.sleep(0.5)  # Rate limit
 
-    logger.info(f"Done: {updated} papers interpreted")
+        if cn_updated > 0:
+            papers_path.write_text(
+                yaml.dump(papers, allow_unicode=True, sort_keys=False, default_flow_style=False),
+                encoding="utf-8",
+            )
+            logger.info(f"Updated {cn_updated} papers with Chinese translations")
+
+        logger.info(f"Done: {cn_updated} papers with Chinese translations")
 
 
 if __name__ == "__main__":

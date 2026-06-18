@@ -39,6 +39,12 @@ export type Paper = {
   tldr?: string;
   reasoning?: string;
   analysis?: AnalysisInfo;
+  // Bilingual (Chinese) fields
+  title_cn?: string;
+  abstract_cn?: string;
+  tldr_cn?: string;
+  reasoning_cn?: string;
+  analysis_cn?: AnalysisInfo;
 };
 
 export type Resource = {
