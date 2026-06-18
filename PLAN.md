@@ -1,6 +1,6 @@
 # awesome-hub-generator — 方案与计划
 
-> 最后更新: 2026-06-16 (Phase 1-5 全部完成)
+> 最后更新: 2026-06-18 (Phase 6 进行中)
 
 ---
 
@@ -725,3 +725,70 @@ SMART_MODEL_NAME=deepseek-v4-flash-260425   # 用于 SMART_LLM（深度分析，
 | GitHub Actions | CI/CD | 免费，与 GitHub Pages 集成 |
 | GitHub Pages | 网站托管 | 免费静态托管 |
 | volcengine-python-sdk | LLM 调用 | 火山引擎 DeepSeek |
+
+---
+
+## 13. 当前已知问题 (Known Issues)
+
+> 最后更新: 2026-06-18
+
+### 13.1 数据质量问题
+
+| 问题 | 状态 | 原因 | 优先级 |
+|------|------|------|--------|
+| Teaser 图片全部缺失（placeholder） | ❌ 未修复 | teaser 抓取依赖外部源（arXiv HTML / 项目页面），当前 pipeline 未成功抓取任何图片 | 🔴 高 |
+| 部分论文缺失深度分析（6/20） | ❌ 未修复 | 深度分析阶段 LLM 调用失败或超时，需要重试机制 | 🔴 高 |
+| 部分论文缺失 TLDR（4/20） | ❌ 未修复 | 评分阶段 LLM 调用失败，需要重试机制 | 🔴 高 |
+| Datasets 数据为空 | ❌ 未修复 | 数据源中无对应条目，需要人工补充或自动采集 | 🟡 中 |
+| Tools 数据为空 | ❌ 未修复 | 数据源中无对应条目，需要人工补充或自动采集 | 🟡 中 |
+| Footer 链接指向 `your-username` | ✅ 已修复 | 模板占位符未替换，已改为 `huangkiki` | 🟢 低 |
+
+### 13.2 双语支持（Phase 6 进行中）
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| i18n 基础设施（`i18n.ts` + `lang.ts`） | ✅ 已完成 | 翻译函数、语言检测、URL 本地化 |
+| Base.astro 语言切换器 | ✅ 已完成 | 导航栏双语 + 语言切换下拉框 |
+| 所有页面 UI 文本双语 | ✅ 已完成 | index/papers/datasets/tools/trends 全部覆盖 |
+| PaperCard 双语标题/TLDR | ✅ 已完成 | 根据 `lang` 显示 `title`/`title_cn`、`tldr`/`tldr_cn` |
+| 论文详情页双语内容 | ✅ 已完成 | 标题/TLDR/分析/评分理由全部双语 |
+| 中文标题/摘要翻译管道 | ✅ 已完成 | `generate_interpretations.py` 新增翻译函数 |
+| 中文 TLDR 生成 | ✅ 已完成 | 基于英文 TLDR 生成中文一句话总结 |
+| 中文分析字段翻译 | ✅ 已完成 | analysis 的 innovations/methodology/key_results/limitations/tech_stack 翻译 |
+| `researcher_adapter.py` 字段映射 | ✅ 已完成 | `abstract_cn`/`title_cn`/`tldr_cn` 写入 papers.yaml |
+| `data.ts` 类型扩展 | ✅ 已完成 | Paper 类型新增 `title_cn`/`abstract_cn`/`tldr_cn`/`reasoning_cn`/`analysis_cn` |
+| 实际运行翻译管道生成数据 | ❌ 未运行 | 需要运行 `generate_interpretations.py` 或等待下次全量构建 |
+
+### 13.3 论文解析（Phase 1-5 已完成）
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| arXiv HTML 解析器 | ✅ 已完成 | `html_parser.py` — BeautifulSoup 按章节分块 |
+| LaTeX Source 解析器 | ✅ 已完成 | `latex_parser.py` — arxiv-to-prompt + pylatexenc |
+| 结构感知分块器 | ✅ 已完成 | `chunker.py` — 按章节/图表/公式分块 |
+| 三源解析策略集成 | ✅ 已完成 | HTML → LaTeX → PDF fallback |
+| Teaser 图片提取增强 | ✅ 已完成 | BeautifulSoup + 关键词筛选替代纯正则 |
+| 测试覆盖 | ✅ 已完成 | 5 个测试文件，每文件 ≤10 条测试 |
+
+### 13.4 其他问题
+
+| 问题 | 状态 | 说明 |
+|------|------|------|
+| dailypaper-skills 子模块 | ✅ 已处理 | 删除内部 `.git`，作为普通文件纳入版本控制 |
+| 构建产物位置 | ✅ 已处理 | 从 `/tmp` 移至项目内 `tmp/`，已加入 `.gitignore` |
+| 测试数量限制 | ✅ 已处理 | 每个测试文件 ≤10 条测试用例 |
+
+### 13.5 修复计划
+
+#### 短期（下次构建前）
+
+1. **运行翻译管道**：执行 `python3 scripts/generate_interpretations.py` 生成中文标题/摘要/TLDR/分析
+2. **重试深度分析**：对缺失分析的 6 篇论文单独重跑深度分析
+3. **重试 TLDR 生成**：对缺失 TLDR 的 4 篇论文单独重跑评分
+4. **运行 teaser 抓取**：执行 `python3 scripts/fetch_teasers.py` 抓取 teaser 图片
+
+#### 中期
+
+1. **Datasets/Tools 数据采集**：人工补充或开发自动采集脚本
+2. **深度分析重试机制**：在 pipeline 中增加失败重试和告警
+3. **Teaser 多源 fallback**：HTML → 项目主页 → PDF 提取 → 默认占位图
