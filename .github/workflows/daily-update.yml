@@ -36,11 +36,15 @@ jobs:
       - name: Install Python dependencies
         run: python -m pip install -r requirements.txt
 
+      - name: Install arxiv-daily-researcher dependencies
+        run: python -m pip install -r arxiv-daily-researcher/requirements.txt
+
       - name: Configure LLM keys
         run: |
           echo "ARK_API_KEY=${{ secrets.ARK_API_KEY }}" >> $GITHUB_ENV
           echo "ARK_API_BASE_URL=${{ secrets.ARK_API_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3' }}" >> $GITHUB_ENV
           echo "ARK_MODEL_NAME=${{ secrets.ARK_MODEL_NAME || 'deepseek-v4-flash-260425' }}" >> $GITHUB_ENV
+          echo "SMART_MODEL_NAME=${{ secrets.SMART_MODEL_NAME || secrets.ARK_MODEL_NAME || 'deepseek-v4-flash-260425' }}" >> $GITHUB_ENV
 
       - name: Daily update
         run: python scripts/update.py
@@ -49,7 +53,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/ output/
+          git add data/ output/ resource/
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else

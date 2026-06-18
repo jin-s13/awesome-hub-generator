@@ -2,22 +2,31 @@
 """
 update.py — 每日增量更新入口
 
-1. 运行 arxiv-daily-researcher 的 daily_research 模式
-2. 解析输出报告，提取新论文
+1. 通过 ResearcherAdapter 运行 arxiv-daily-researcher（Python import 方式）
+2. 将结构化结果转换为 papers.yaml 格式
 3. 去重合并到 data/papers.yaml
 4. 重新构建网站
+
+Fallback: 当 researcher 不可用时，降级到 sync.py 的 arXiv API 搜索。
 """
 from __future__ import annotations
 
+import logging
 import os
+import shutil
 import sys
-import json
-import subprocess
-from pathlib import Path
 from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Dict, List
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(levelname)s] %(message)s",
+)
+logger = logging.getLogger("update")
 
 
 def load_config() -> dict:
@@ -26,78 +35,27 @@ def load_config() -> dict:
     return yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
 
-def run_arxiv_researcher(config: dict) -> bool:
-    """运行 arxiv-daily-researcher 的 daily_research 模式"""
-    researcher_dir = ROOT / "arxiv-daily-researcher"
-    if not researcher_dir.exists():
-        print("[update] 未找到 arxiv-daily-researcher submodule，跳过")
-        return False
-
-    research = config.get("research", {})
-    keywords = research.get("keywords", [])
-    search_days = research.get("daily_search_days", 3)
-
-    # 确保 .env 存在
-    env_path = researcher_dir / ".env"
-    if not env_path.exists():
-        # 从父项目环境变量创建
-        env_vars = {k: v for k, v in os.environ.items() if k.startswith("ARK_")}
-        if env_vars:
-            env_content = "\n".join(f"{k}={v}" for k, v in env_vars.items())
-            env_path.write_text(env_content, encoding="utf-8")
-            print("[update] 已创建 arxiv-daily-researcher/.env")
-
-    print(f"[update] 运行 arxiv-daily-researcher (daily_research 模式)...")
-    result = subprocess.run(
-        [sys.executable, "main.py"],
-        cwd=str(researcher_dir),
-        capture_output=True, text=True, timeout=600,
-    )
-    if result.returncode != 0:
-        print(f"[update] arxiv-daily-researcher 运行失败:\n{result.stderr[:500]}")
-        return False
-
-    print("[update] arxiv-daily-researcher 运行完成")
-    return True
-
-
-def parse_researcher_output(config: dict) -> list:
-    """解析 arxiv-daily-researcher 的输出报告，提取论文列表"""
-    researcher_dir = ROOT / "arxiv-daily-researcher"
-    reports_dir = researcher_dir / "data" / "reports" / "daily_research"
-
-    if not reports_dir.exists():
-        print(f"[update] 未找到报告目录: {reports_dir}")
+def load_papers_yaml(path: Path) -> List[Dict[str, Any]]:
+    """Load existing papers from YAML file."""
+    import yaml
+    if not path.exists():
         return []
-
-    papers = []
-    # 遍历所有 markdown 报告
-    for md_file in reports_dir.rglob("*.md"):
-        if md_file.name == "README.md":
-            continue
-        content = md_file.read_text(encoding="utf-8")
-        # 解析 markdown 中的论文条目
-        # arxiv-daily-researcher 输出格式：每篇论文有标题、链接、评分等
-        entries = re.findall(
-            r"\|\s*\[([^\]]+)\]\(([^\)]+)\)\s*\|\s*([^|]+)\s*\|\s*([\d.]+)\s*\|",
-            content,
-        )
-        for title, url, summary, score in entries:
-            if "arxiv.org" in url:
-                papers.append({
-                    "title": title.strip(),
-                    "links": {"paper": url.strip()},
-                    "abstract": summary.strip(),
-                    "score": float(score),
-                })
-
-    print(f"[update] 从报告解析到 {len(papers)} 篇论文")
-    return papers
+    with open(path, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    return data if isinstance(data, list) else []
 
 
-def update_from_arxiv_api(config: dict) -> list:
-    """直接从 arXiv API 获取最新论文（作为 fallback）"""
-    from sync import search_arxiv
+def save_papers_yaml(path: Path, papers: List[Dict[str, Any]]) -> None:
+    """Save papers to YAML file."""
+    import yaml
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.dump(papers, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+
+
+def update_from_arxiv_api(config: dict) -> List[Dict[str, Any]]:
+    """Fallback: directly fetch from arXiv API when researcher is unavailable."""
+    from scripts.sync import search_arxiv, sync_papers
 
     research = config.get("research", {})
     keywords = research.get("keywords", [])
@@ -107,69 +65,93 @@ def update_from_arxiv_api(config: dict) -> list:
     date_from = (datetime.now() - timedelta(days=search_days)).strftime("%Y%m%d")
     date_to = datetime.now().strftime("%Y%m%d")
 
-    print(f"[update] 从 arXiv API 获取最近 {search_days} 天的论文...")
+    logger.info(f"Fallback: fetching from arXiv API (last {search_days} days)...")
     papers = search_arxiv(keywords, categories, date_from, date_to, max_results=200)
     return papers
 
 
 def main():
     import argparse
-    import re
     parser = argparse.ArgumentParser(description="每日增量更新")
     parser.add_argument("--config", default="awesome.yaml", help="配置文件路径")
     parser.add_argument("--output", default="output/website", help="网站输出目录")
-    parser.add_argument("--skip-researcher", action="store_true", help="跳过 arxiv-daily-researcher")
+    parser.add_argument("--skip-researcher", action="store_true",
+                        help="跳过 arxiv-daily-researcher（使用 arXiv API fallback）")
     parser.add_argument("--skip-llm", action="store_true", help="跳过 LLM 分类")
     parser.add_argument("--skip-build", action="store_true", help="跳过 npm build")
     args = parser.parse_args()
 
     config = load_config()
     output_dir = (ROOT / args.output).resolve()
+    papers_yaml = ROOT / "data" / "papers.yaml"
 
-    # Step 1: 尝试运行 arxiv-daily-researcher
-    new_papers = []
+    # Step 1: 论文发现
+    new_papers: List[Dict[str, Any]] = []
+
     if not args.skip_researcher:
-        run_arxiv_researcher(config)
-        new_papers = parse_researcher_output(config)
+        try:
+            from scripts.researcher_adapter import ResearcherAdapter
 
-    # Step 2: 如果没有结果，直接从 arXiv API 获取
+            logger.info("Running arxiv-daily-researcher via ResearcherAdapter...")
+            adapter = ResearcherAdapter(config)
+            result = adapter.run_daily_research()
+            new_papers = adapter.convert_to_papers_yaml(result)
+            logger.info(f"Researcher found {len(new_papers)} papers")
+        except ImportError as e:
+            logger.warning(f"Researcher unavailable ({e}), falling back to arXiv API")
+        except Exception as e:
+            logger.warning(f"Researcher failed ({e}), falling back to arXiv API")
+
     if not new_papers:
-        print("[update] 使用 arXiv API 作为数据源")
+        logger.info("Using arXiv API as data source")
         new_papers = update_from_arxiv_api(config)
 
-    # Step 3: 同步到 YAML
+    # Step 2: 去重合并到 papers.yaml
     if new_papers:
-        from sync import sync_papers
-        papers_yaml = output_dir / "data" / "papers.yaml"
-        papers_yaml.parent.mkdir(parents=True, exist_ok=True)
+        existing = load_papers_yaml(papers_yaml)
+        logger.info(f"Existing papers: {len(existing)}")
 
-        # 如果已有数据，先复制过来
-        existing_data = ROOT / "data" / "papers.yaml"
-        if existing_data.exists() and not papers_yaml.exists():
-            papers_yaml.parent.mkdir(parents=True, exist_ok=True)
-            import shutil
-            shutil.copy2(existing_data, papers_yaml)
+        if args.skip_researcher:
+            # Fallback path: use sync.py's LLM classification
+            from scripts.sync import sync_papers
+            added = sync_papers(
+                new_papers, papers_yaml,
+                source_repo="arxiv", skip_llm=args.skip_llm
+            )
+        else:
+            # Researcher path: papers already have scores/analysis, just deduplicate
+            from scripts.researcher_adapter import ResearcherAdapter
+            merged, added = ResearcherAdapter.deduplicate(existing, new_papers)
+            save_papers_yaml(papers_yaml, merged)
+            logger.info(f"New: {added}, Total: {len(merged)}")
 
-        added = sync_papers(new_papers, papers_yaml, source_repo="arxiv", skip_llm=args.skip_llm)
-        print(f"[update] 新增 {added} 篇论文")
+        logger.info(f"Added {added} new papers")
     else:
-        print("[update] 未发现新论文")
+        logger.info("No new papers found")
+
+    # Step 3: 获取论文 teaser 图
+    try:
+        from fetch_teasers import main as fetch_teasers
+        logger.info("Fetching paper teaser images...")
+        fetch_teasers()
+    except Exception as e:
+        logger.warning(f"Teaser fetch failed (non-fatal): {e}")
 
     # Step 4: 重新构建网站
     if not args.skip_build:
         from build import generate_site, build_site
+
         generate_site(config, output_dir)
 
-        # 复制 data 到网站目录
+        # Copy data to website directory
         data_src = ROOT / "data"
         data_dst = output_dir / "data"
         if data_src.exists():
-            import shutil
             shutil.copytree(data_src, data_dst, dirs_exist_ok=True)
 
         build_site(output_dir)
 
-    print(f"[update] 完成！")
+    logger.info("Update complete!")
 
 
 if __name__ == "__main__":

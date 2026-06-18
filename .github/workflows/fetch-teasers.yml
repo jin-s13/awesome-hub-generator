@@ -1,0 +1,40 @@
+name: Fetch teasers — download paper teaser images
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 10 * * 1"      # 每周一 UTC 10:00
+
+permissions:
+  contents: write
+
+jobs:
+  fetch-teasers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Fetch teaser images
+        run: python scripts/fetch_teasers.py
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add templates/astro-site/public/assets/papers/ data/papers.yaml
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: update paper teasers $(date +%Y-%m-%d)"
+            git push
+          fi

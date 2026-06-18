@@ -4,22 +4,39 @@ const { paper } = Astro.props as { paper: Paper };
 const linkEntries = Object.entries(paper.links || {}).filter(([, value]) => value);
 const sourceRepos = (paper.sources || []).map((s) => s.repo).join(', ');
 const searchText = [paper.title, paper.venue, paper.year, paper.category, ...(paper.tags || []), ...(paper.representations || []), sourceRepos].join(' ').toLowerCase();
+const interpPath = `/papers/${paper.id}`;
+
+// Score badge
+const score = paper.score?.total;
+const scoreLevel = score != null
+  ? score >= 80 ? 'high'
+    : score >= 60 ? 'medium'
+    : 'low'
+  : null;
+
+// TLDR
+const tldr = paper.tldr || '';
+const detailUrl = `/papers/${paper.id}`;
 ---
 <article class="paper-card filter-item" data-search={searchText} data-category={paper.category} data-year={paper.year}>
-  <div class="preview-wrap">
+  <a href={detailUrl} class="preview-wrap">
     <img src={paper.preview || '/assets/placeholder.svg'} alt={`Preview for ${paper.title}`} loading="lazy" />
-  </div>
+  </a>
   <div class="paper-body">
     <div class="paper-meta">
       <span>{paper.venue} {paper.year}</span>
+      {scoreLevel && <span class={`score-badge score-${scoreLevel}`}>{score}</span>}
       <span>{paper.category}</span>
     </div>
-    <h3>{paper.title}</h3>
+    <h3><a href={detailUrl}>{paper.title}</a></h3>
+    {tldr && <p class="paper-tldr">{tldr}</p>}
     <div class="tag-row">
       {(paper.tags || []).slice(0, 6).map((tag) => <span class="tag">{tag}</span>)}
     </div>
     <div class="link-row">
       {linkEntries.map(([key, value]) => <a href={value} target="_blank" rel="noreferrer">{key}</a>)}
+      <a href={interpPath} class="interpret-link">解读</a>
+      <a href={detailUrl} class="detail-link">详情</a>
     </div>
     <div class="source-row" title={sourceRepos}>
       {(paper.sources || []).map((source) => <span>{source.repo.split('/')[0]}</span>)}

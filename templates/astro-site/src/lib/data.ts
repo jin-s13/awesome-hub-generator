@@ -5,6 +5,22 @@ import YAML from 'yaml';
 export type LinkMap = Record<string, string>;
 export type SourceRef = { repo: string; category?: string };
 
+export type ScoreInfo = {
+  total: number;
+  keyword_scores?: Record<string, number>;
+  author_bonus?: number;
+  passing_score?: number;
+  is_qualified?: boolean;
+};
+
+export type AnalysisInfo = {
+  innovations?: string[];
+  methodology?: string;
+  key_results?: string;
+  limitations?: string[];
+  tech_stack?: string[];
+};
+
 export type Paper = {
   id: string;
   title: string;
@@ -19,6 +35,10 @@ export type Paper = {
   preview?: string;
   sources: SourceRef[];
   notes?: string;
+  score?: ScoreInfo;
+  tldr?: string;
+  reasoning?: string;
+  analysis?: AnalysisInfo;
 };
 
 export type Resource = {
@@ -44,6 +64,10 @@ function loadYaml<T>(relativePath: string): T[] {
 
 export function getPapers(): Paper[] {
   return loadYaml<Paper>('data/papers.yaml').sort((a, b) => b.year - a.year || a.title.localeCompare(b.title));
+}
+
+export function getPaper(id: string): Paper | undefined {
+  return getPapers().find((p) => p.id === id);
 }
 
 export function getDatasets(): Resource[] {

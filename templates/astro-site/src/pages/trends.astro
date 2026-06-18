@@ -1,0 +1,176 @@
+---
+import Base from '../layouts/Base.astro';
+import { getPapers, uniq } from '../lib/data';
+
+const papers = getPapers();
+
+// Aggregate keyword frequency from tags
+const tagCounts: Record<string, number> = {};
+for (const p of papers) {
+  for (const tag of p.tags || []) {
+    tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+  }
+}
+const topTags = Object.entries(tagCounts)
+  .sort(([, a], [, b]) => b - a)
+  .slice(0, 30);
+
+// Aggregate keyword scores from scored papers
+const keywordScoreAgg: Record<string, { count: number; total: number }> = {};
+for (const p of papers) {
+  if (p.score?.keyword_scores) {
+    for (const [kw, sc] of Object.entries(p.score.keyword_scores)) {
+      if (!keywordScoreAgg[kw]) keywordScoreAgg[kw] = { count: 0, total: 0 };
+      keywordScoreAgg[kw].count += 1;
+      keywordScoreAgg[kw].total += sc;
+    }
+  }
+}
+const topKeywords = Object.entries(keywordScoreAgg)
+  .sort(([, a], [, b]) => b.total - a.total)
+  .slice(0, 20);
+
+const maxTagCount = Math.max(...topTags.map(([, c]) => c), 1);
+const maxKeywordTotal = Math.max(...topKeywords.map(([, v]) => v.total), 1);
+
+// Year distribution
+const yearCounts: Record<string, number> = {};
+for (const p of papers) {
+  const y = String(p.year || 'Unknown');
+  yearCounts[y] = (yearCounts[y] || 0) + 1;
+}
+const yearEntries = Object.entries(yearCounts).sort(([a], [b]) => b.localeCompare(a));
+const maxYearCount = Math.max(...yearEntries.map(([, c]) => c), 1);
+---
+
+<Base title="Trends · {{PROJECT_NAME}}">
+  <section class="page-title">
+    <p class="eyebrow">Research landscape</p>
+    <h1>Trends</h1>
+    <p>Keyword frequency, scoring patterns, and year distribution across {papers.length} papers.</p>
+  </section>
+
+  {topKeywords.length > 0 && (
+    <section class="trend-section">
+      <h2>关键词评分趋势</h2>
+      <p class="trend-subtitle">基于 LLM 评分的加权关键词分布（总分越高表示该方向论文越受关注）</p>
+      <div class="trend-chart">
+        {topKeywords.map(([kw, { count, total }]) => (
+          <div class="trend-bar-row">
+            <span class="trend-label">{kw}</span>
+            <div class="trend-bar-track">
+              <div
+                class="trend-bar-fill keyword-fill"
+                style={`width: ${(total / maxKeywordTotal) * 100}%`}
+              ></div>
+            </div>
+            <span class="trend-value">{total.toFixed(1)}</span>
+            <span class="trend-count">({count} papers)</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  )}
+
+  <section class="trend-section">
+    <h2>标签频率 Top 30</h2>
+    <p class="trend-subtitle">论文标签中出现频率最高的关键词</p>
+    <div class="trend-chart">
+      {topTags.map(([tag, count]) => (
+        <div class="trend-bar-row">
+          <span class="trend-label">{tag}</span>
+          <div class="trend-bar-track">
+            <div
+              class="trend-bar-fill tag-fill"
+              style={`width: ${(count / maxTagCount) * 100}%`}
+            ></div>
+          </div>
+          <span class="trend-value">{count}</span>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <section class="trend-section">
+    <h2>年份分布</h2>
+    <p class="trend-subtitle">论文按年份分布情况</p>
+    <div class="trend-chart">
+      {yearEntries.map(([year, count]) => (
+        <div class="trend-bar-row">
+          <span class="trend-label">{year}</span>
+          <div class="trend-bar-track">
+            <div
+              class="trend-bar-fill year-fill"
+              style={`width: ${(count / maxYearCount) * 100}%`}
+            ></div>
+          </div>
+          <span class="trend-value">{count}</span>
+        </div>
+      ))}
+    </div>
+  </section>
+</Base>
+
+<style>
+  .trend-section {
+    margin-bottom: 48px;
+  }
+  .trend-section h2 {
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .trend-subtitle {
+    font-size: 14px;
+    color: var(--color-text-muted);
+    margin-bottom: 20px;
+  }
+  .trend-chart {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .trend-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .trend-label {
+    font-size: 13px;
+    font-weight: 500;
+    min-width: 140px;
+    text-align: right;
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .trend-bar-track {
+    flex: 1;
+    height: 16px;
+    background: var(--color-surface);
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+  }
+  .trend-bar-fill {
+    height: 100%;
+    border-radius: 8px;
+    transition: width 0.3s;
+  }
+  .keyword-fill { background: linear-gradient(90deg, #2563eb, #7c3aed); }
+  .tag-fill { background: linear-gradient(90deg, #059669, #10b981); }
+  .year-fill { background: linear-gradient(90deg, #d97706, #f59e0b); }
+  .trend-value {
+    font-size: 13px;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    min-width: 40px;
+    color: var(--color-text);
+  }
+  .trend-count {
+    font-size: 12px;
+    color: var(--color-text-muted);
+    min-width: 60px;
+  }
+</style>

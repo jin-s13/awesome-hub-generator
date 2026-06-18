@@ -7,14 +7,26 @@ sync.py — arXiv 论文适配器
 """
 from __future__ import annotations
 
+import json
+import hashlib
 import os
 import re
 import sys
-import json
-import hashlib
+import time
 from pathlib import Path
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
+
+# Load .env file if present
+_env_path = Path(__file__).resolve().parents[1] / ".env"
+if _env_path.exists():
+    with open(_env_path) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith("#") and "=" in _line:
+                _key, _val = _line.split("=", 1)
+                _val = _val.strip("\"'")
+                os.environ.setdefault(_key.strip(), _val)
 
 import yaml
 import requests
@@ -99,56 +111,81 @@ def search_arxiv(keywords: List[str], categories: List[str],
                  date_from: str = "", date_to: str = "",
                  max_results: int = 500) -> List[Dict]:
     """通过 arXiv API 搜索论文"""
-    # Build query
-    kw_parts = []
-    for kw in keywords:
-        if " " in kw:
-            kw_parts.append(f'%22{kw.replace(" ", "+")}%22')
-        else:
-            kw_parts.append(kw)
-    query = "+OR+".join(f"all:{kw}" for kw in kw_parts)
+    # arXiv API URL 长度有限制，关键词太多时需要分批查询
+    # 每次最多用 10 个关键词
+    BATCH_SIZE = 10
+    all_papers = []
+    seen_ids = set()
 
-    if categories:
-        cat_parts = "+OR+".join(f"cat:{c}" for c in categories)
-        query = f"({query})+AND+({cat_parts})"
+    for batch_start in range(0, len(keywords), BATCH_SIZE):
+        batch_kw = keywords[batch_start:batch_start + BATCH_SIZE]
 
-    if date_from:
-        # arXiv API 需要 YYYYMMDD 格式，去掉连字符
-        date_from_clean = date_from.replace("-", "")
-        date_to_clean = date_to.replace("-", "") if date_to else datetime.now().strftime("%Y%m%d")
-        query += f"+AND+submittedDate:[{date_from_clean}0000+TO+{date_to_clean}2359]"
+        # Build query
+        kw_parts = []
+        for kw in batch_kw:
+            if " " in kw:
+                kw_parts.append(f'%22{kw.replace(" ", "+")}%22')
+            else:
+                kw_parts.append(kw)
+        query = "+OR+".join(f"all:{kw}" for kw in kw_parts)
 
-    url = f"{ARXIV_API_URL}?search_query={query}&max_results={max_results}&sortBy=submittedDate&sortOrder=descending"
-    print(f"[sync] arXiv API: {url[:120]}...")
+        if categories:
+            cat_parts = "+OR+".join(f"cat:{c}" for c in categories)
+            query = f"({query})+AND+({cat_parts})"
 
-    resp = requests.get(url, timeout=120, headers={"User-Agent": "awesome-hub-generator/1.0"})
-    resp.raise_for_status()
+        if date_from:
+            date_from_clean = date_from.replace("-", "")
+            date_to_clean = date_to.replace("-", "") if date_to else datetime.now().strftime("%Y%m%d")
+            query += f"+AND+submittedDate:[{date_from_clean}0000+TO+{date_to_clean}2359]"
 
-    papers = []
-    for entry in re.findall(r"<entry>(.*?)</entry>", resp.text, re.DOTALL):
-        arxiv_id = _extract_arxiv_id(entry)
-        title = _clean_xml(_extract_tag(entry, "title"))
-        abstract = _clean_xml(_extract_tag(entry, "summary"))
-        published = _extract_tag(entry, "published")[:10]
-        cats = re.findall(r'term="([^"]+)"', entry)
+        url = f"{ARXIV_API_URL}?search_query={query}&max_results={max_results}&sortBy=submittedDate&sortOrder=descending"
+        print(f"[sync] arXiv API batch {batch_start//BATCH_SIZE + 1}: {len(batch_kw)} keywords")
 
-        links = {"paper": f"https://arxiv.org/abs/{arxiv_id}"}
-        # Check for code links in abstract
-        code_match = re.search(r"github\.com/[\w\-\.]+/[\w\-\.]+", abstract)
-        if code_match:
-            links["code"] = f"https://{code_match.group(0)}"
+        # Retry with backoff
+        for attempt in range(3):
+            try:
+                resp = requests.get(url, timeout=120, headers={"User-Agent": "awesome-hub-generator/1.0"})
+                resp.raise_for_status()
+                break
+            except requests.RequestException as e:
+                if attempt < 2:
+                    wait = 2 ** attempt
+                    print(f"[sync] arXiv API error ({e}), retrying in {wait}s...")
+                    time.sleep(wait)
+                else:
+                    print(f"[sync] arXiv API failed after 3 attempts: {e}")
+                    raise
 
-        papers.append({
-            "arxiv_id": arxiv_id,
-            "title": title,
-            "abstract": abstract,
-            "published": published,
-            "categories": cats,
-            "links": links,
-        })
+        # Parse arXiv XML response
+        for entry in re.findall(r"<entry>(.*?)</entry>", resp.text, re.DOTALL):
+            arxiv_id = _extract_arxiv_id(entry)
+            title = _clean_xml(_extract_tag(entry, "title"))
+            abstract = _clean_xml(_extract_tag(entry, "summary"))
+            published = _extract_tag(entry, "published")[:10]
+            cats = re.findall(r'term="([^"]+)"', entry)
 
-    print(f"[sync] 从 arXiv 获取到 {len(papers)} 篇论文")
-    return papers
+            links = {"paper": f"https://arxiv.org/abs/{arxiv_id}"}
+            code_match = re.search(r"github\.com/[\w\-\.]+/[\w\-\.]+", abstract)
+            if code_match:
+                links["code"] = f"https://{code_match.group(0)}"
+
+            pid = arxiv_id
+            if pid not in seen_ids:
+                seen_ids.add(pid)
+                all_papers.append({
+                    "arxiv_id": arxiv_id,
+                    "title": title,
+                    "abstract": abstract,
+                    "published": published,
+                    "categories": cats,
+                    "links": links,
+                })
+
+        # 避免请求过于频繁
+        time.sleep(1)
+
+    print(f"[sync] arXiv API 返回 {len(all_papers)} 篇论文（去重后）")
+    return all_papers
 
 
 def _extract_arxiv_id(entry: str) -> str:
@@ -217,6 +254,7 @@ def paper_to_yaml(paper: Dict, classification: Dict, source_repo: str = "arxiv")
     return {
         "id": slugify(f"{paper['title'][:60]}-{year}"),
         "title": paper["title"],
+        "abstract": paper.get("abstract", ""),
         "year": year,
         "venue": infer_venue(paper.get("categories", [])),
         "category": cat,
@@ -258,11 +296,15 @@ def deduplicate(existing: List[Dict], new_items: List[Dict]) -> Tuple[List[Dict]
 # ---- 主入口 ----
 
 def sync_papers(new_papers: List[Dict], output_path: Path, source_repo: str = "arxiv",
-                skip_llm: bool = False) -> int:
+                skip_llm: bool = False, max_papers: Optional[int] = None) -> int:
     """
     将新论文同步到 YAML 文件。
     Returns: 新增论文数量
     """
+    if max_papers and len(new_papers) > max_papers:
+        new_papers = new_papers[:max_papers]
+        print(f"[sync] 限制为前 {max_papers} 篇论文")
+
     existing = load_yaml(output_path)
     print(f"[sync] 现有论文: {len(existing)} 篇")
 

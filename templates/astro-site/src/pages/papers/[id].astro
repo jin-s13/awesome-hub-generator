@@ -1,0 +1,214 @@
+---
+import Base from '../../layouts/Base.astro';
+import { getPapers } from '../../lib/data';
+
+export async function getStaticPaths() {
+  const papers = getPapers();
+  return papers.map((paper) => ({
+    params: { id: paper.id },
+    props: { paper },
+  }));
+}
+
+const { paper } = Astro.props;
+const linkEntries = Object.entries(paper.links || {}).filter(([, value]) => value);
+const score = paper.score;
+const analysis = paper.analysis;
+const scoreLevel = score?.total != null
+  ? score.total >= 80 ? 'high'
+    : score.total >= 60 ? 'medium'
+    : 'low'
+  : null;
+const keywordEntries = score?.keyword_scores
+  ? Object.entries(score.keyword_scores).sort(([, a], [, b]) => b - a)
+  : [];
+const maxKeywordScore = Math.max(...keywordEntries.map(([, v]) => v), 1);
+---
+
+<Base title={`${paper.title} · {{PROJECT_NAME}}`}>
+  <section class="paper-detail">
+    <a href="/papers" class="back-link">&larr; Back to papers</a>
+
+    <div class="detail-header">
+      <h1>{paper.title}</h1>
+      <div class="detail-meta">
+        <span>{paper.venue} {paper.year}</span>
+        {scoreLevel && <span class={`score-badge score-${scoreLevel}`}>{score.total}</span>}
+        <span class="detail-category">{paper.category}</span>
+      </div>
+    </div>
+
+    {paper.tldr && (
+      <div class="detail-tldr">
+        <h2>TLDR</h2>
+        <p>{paper.tldr}</p>
+      </div>
+    )}
+
+    {paper.reasoning && (
+      <div class="detail-reasoning">
+        <h2>评分理由</h2>
+        <p>{paper.reasoning}</p>
+      </div>
+    )}
+
+    {keywordEntries.length > 0 && (
+      <div class="detail-keywords">
+        <h2>关键词评分</h2>
+        <div class="keyword-bars">
+          {keywordEntries.map(([kw, sc]) => (
+            <div class="keyword-bar-row">
+              <span class="keyword-label">{kw}</span>
+              <div class="keyword-bar-track">
+                <div class="keyword-bar-fill" style={`width: ${(sc / maxKeywordScore) * 100}%`}></div>
+              </div>
+              <span class="keyword-score">{sc}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
+
+    {analysis && (
+      <div class="detail-analysis">
+        <h2>深度分析</h2>
+
+        {analysis.innovations && analysis.innovations.length > 0 && (
+          <div class="analysis-section">
+            <h3>创新点</h3>
+            <ul>
+              {analysis.innovations.map((item) => <li>{item}</li>)}
+            </ul>
+          </div>
+        )}
+
+        {analysis.methodology && (
+          <div class="analysis-section">
+            <h3>方法</h3>
+            <p>{analysis.methodology}</p>
+          </div>
+        )}
+
+        {analysis.key_results && (
+          <div class="analysis-section">
+            <h3>关键结果</h3>
+            <p>{analysis.key_results}</p>
+          </div>
+        )}
+
+        {analysis.limitations && analysis.limitations.length > 0 && (
+          <div class="analysis-section">
+            <h3>局限性</h3>
+            <ul>
+              {analysis.limitations.map((item) => <li>{item}</li>)}
+            </ul>
+          </div>
+        )}
+
+        {analysis.tech_stack && analysis.tech_stack.length > 0 && (
+          <div class="analysis-section">
+            <h3>技术栈</h3>
+            <div class="tag-row">
+              {analysis.tech_stack.map((t) => <span class="tag">{t}</span>)}
+            </div>
+          </div>
+        )}
+      </div>
+    )}
+
+    <div class="detail-links">
+      <h2>资源</h2>
+      <div class="link-row">
+        {linkEntries.map(([key, value]) => <a href={value} target="_blank" rel="noreferrer">{key}</a>)}
+      </div>
+    </div>
+
+    <div class="detail-tags">
+      <h2>标签</h2>
+      <div class="tag-row">
+        {(paper.tags || []).map((tag) => <span class="tag">{tag}</span>)}
+      </div>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .back-link {
+    display: inline-block;
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 24px;
+    color: var(--color-text-secondary);
+  }
+  .back-link:hover { color: var(--color-primary); }
+
+  .detail-header { margin-bottom: 32px; }
+  .detail-header h1 { font-size: 26px; font-weight: 700; line-height: 1.3; margin-bottom: 12px; }
+  .detail-meta { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--color-text-secondary); }
+  .detail-category {
+    background: var(--color-primary-light);
+    color: var(--color-primary);
+    padding: 2px 10px;
+    border-radius: 4px;
+    font-weight: 500;
+    font-size: 12px;
+  }
+
+  .detail-tldr, .detail-reasoning, .detail-keywords, .detail-analysis, .detail-links, .detail-tags {
+    margin-bottom: 32px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .detail-tldr:last-child, .detail-reasoning:last-child, .detail-keywords:last-child,
+  .detail-analysis:last-child, .detail-links:last-child, .detail-tags:last-child {
+    border-bottom: none;
+  }
+
+  h2 { font-size: 18px; font-weight: 600; margin-bottom: 12px; }
+  h3 { font-size: 15px; font-weight: 600; margin-bottom: 8px; color: var(--color-text-secondary); }
+
+  .detail-tldr p, .detail-reasoning p, .analysis-section p {
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--color-text-secondary);
+  }
+
+  .analysis-section { margin-bottom: 20px; }
+  .analysis-section ul { padding-left: 20px; }
+  .analysis-section li { font-size: 14px; line-height: 1.6; color: var(--color-text-secondary); margin-bottom: 4px; }
+
+  .keyword-bars { display: flex; flex-direction: column; gap: 8px; }
+  .keyword-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .keyword-label {
+    font-size: 13px;
+    font-weight: 500;
+    min-width: 140px;
+    text-align: right;
+    color: var(--color-text-secondary);
+  }
+  .keyword-bar-track {
+    flex: 1;
+    height: 12px;
+    background: var(--color-surface);
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+  }
+  .keyword-bar-fill {
+    height: 100%;
+    background: var(--color-primary);
+    border-radius: 6px;
+    transition: width 0.3s;
+  }
+  .keyword-score {
+    font-size: 13px;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    min-width: 24px;
+    color: var(--color-text);
+  }
+</style>

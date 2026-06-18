@@ -7,7 +7,9 @@ const papers = getPapers();
 const datasets = getDatasets();
 const tools = getTools();
 const stats = getStats();
-const featured = papers.slice(0, 6);
+const featured = papers
+  .sort((a, b) => (b.score?.total || 0) - (a.score?.total || 0))
+  .slice(0, 6);
 ---
 <Base title="{{PROJECT_NAME}}">
   <section class="hero">

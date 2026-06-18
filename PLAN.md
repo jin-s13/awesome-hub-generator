@@ -1,6 +1,6 @@
 # awesome-hub-generator — 方案与计划
 
-> 最后更新: 2026-06-15
+> 最后更新: 2026-06-16 (Phase 1-5 全部完成)
 
 ---
 
@@ -26,7 +26,7 @@ awesome-hub-generator/          ← 通用生成器工具（本仓库）
 
 awesome-cad-hub/                ← 具体 awesome 站点（产物仓库）
 ├── awesome.yaml                ← CAD 方向的配置
-├── data/papers.yaml            ← 自动生成的论文数据
+├── data/papers.yaml            ← 自动生成的论文数据（含评分/深度分析）
 ├── src/                        ← Astro 网站源码（从模板生成）
 ├── .github/workflows/          ← 自动部署工作流
 └── README.md
@@ -34,395 +34,694 @@ awesome-cad-hub/                ← 具体 awesome 站点（产物仓库）
 
 ---
 
-## 2. 系统架构
+## 2. 最终形态架构
 
-### 2.1 整体流程
+### 2.1 设计原则
+
+1. **arxiv-daily-researcher 作为核心论文引擎**，直接 Python import 调用，而非子进程
+2. **双 LLM 策略**：CHEAP_LLM 评分筛选 + SMART_LLM 深度分析，而非每篇都调 SMART_LLM
+3. **配置统一**：awesome.yaml 作为唯一用户配置入口，自动生成 researcher 的 config.json
+4. **数据富化**：papers.yaml 保留评分、TLDR、深度分析等结构化信息
+5. **网站增强**：展示评分徽章、TLDR、深度分析摘要、关键词趋势
+
+### 2.2 整体流程
 
 ```
                     ┌─────────────────────┐
                     │   awesome.yaml      │
-                    │  (研究方向配置)      │
+                    │  (用户唯一配置)      │
                     └────────┬────────────┘
                              │
               ┌──────────────┴──────────────┐
               ▼                              ▼
-    ┌──────────────────┐          ┌──────────────────┐
-    │  全量构建 (build) │          │ 每日更新 (update) │
-    │                  │          │                  │
-    │ ① GitHub API 搜索 │          │ ① arxiv-daily-   │
-    │   已有 awesome 项目│          │   researcher 运行 │
-    │ ② 自动吸纳数据     │          │ ② 解析新论文      │
-    │   (clone + 解析)   │          │ ③ 去重合并到 YAML │
-    │ ③ arXiv 补充搜索   │          │ ④ 重新构建网站    │
-    │   (去重)           │          │ ⑤ 部署到 Pages   │
-    │ ④ LLM 分类打标签   │          │                  │
-    │ ⑤ 生成 YAML 数据   │          │                  │
-    │ ⑥ 从模板生成网站   │          │                  │
-    │ ⑦ npm build       │          │                  │
-    │ ⑧ 部署到 Pages    │          │                  │
-    └────────┬─────────┘          └────────┬─────────┘
+    ┌──────────────────────┐      ┌──────────────────────┐
+    │  全量构建 (build.py)  │      │ 每日更新 (update.py)  │
+    │                      │      │                      │
+    │ Phase 1: 自动发现     │      │ Step 1: 调用          │
+    │   GitHub awesome 项目 │      │   arxiv-daily-        │
+    │   并吸纳数据          │      │   researcher 的        │
+    │                      │      │   DailyResearchPipeline│
+    │ Phase 2: arXiv 搜索   │      │   (Python import)     │
+    │   通过 researcher 的   │      │                      │
+    │   DailyResearchPipeline│      │ Step 2: 适配层转换    │
+    │   (Python import)     │      │   → papers.yaml       │
+    │                      │      │                      │
+    │ Phase 3: 适配层转换    │      │ Step 3: 重新构建网站   │
+    │   → papers.yaml       │      │                      │
+    │                      │      │                      │
+    │ Phase 4: 生成 Astro   │      │                      │
+    │   网站 + npm build    │      │                      │
+    └────────┬─────────────┘      └────────┬─────────────┘
              │                             │
              └──────────────┬──────────────┘
                             ▼
-                  ┌──────────────────┐
-                  │  GitHub Pages    │
-                  │  (静态网站)       │
-                  └──────────────────┘
+                  ┌──────────────────────┐
+                  │  GitHub Pages        │
+                  │  (静态网站)           │
+                  │  - 论文卡片（含评分）  │
+                  │  - 详情页（含深度分析）│
+                  │  - 关键词趋势图       │
+                  └──────────────────────┘
 ```
 
-### 2.2 核心组件
+### 2.3 核心组件
 
 | 组件 | 文件 | 职责 |
 |------|------|------|
-| 配置 | `awesome.yaml` | 研究方向、关键词、arXiv 分类、网站信息 |
+| 配置 | `awesome.yaml` | 研究方向、关键词、arXiv 分类、网站信息（**用户唯一入口**） |
+| 配置生成器 | `scripts/config_bridge.py` | 将 awesome.yaml 转为 researcher 的 config.json + .env |
 | GitHub 发现 | `scripts/discover_sources.py` | 自动搜索 GitHub 已有 awesome 项目并吸纳数据 |
-| arXiv 搜索 | `scripts/sync.py` | arXiv API 搜索 + LLM 分类 + YAML 输出 |
-| 全量构建 | `scripts/build.py` | 从零构建完整网站 |
-| 每日更新 | `scripts/update.py` | 增量更新论文并重新构建 |
+| arXiv 搜索 | `scripts/sync.py` | **降级为 fallback**：仅当 researcher 不可用时使用 |
+| 适配层 | `scripts/researcher_adapter.py` | **核心新增**：封装 researcher 调用 + 结果转换 |
+| 全量构建 | `scripts/build.py` | 从零构建完整网站（集成 researcher） |
+| 每日更新 | `scripts/update.py` | 增量更新论文并重新构建（集成 researcher） |
 | 网站模板 | `templates/astro-site/` | Astro 静态网站模板（含 `{{占位符}}`） |
 | 论文引擎 | `arxiv-daily-researcher/` | git submodule，论文发现与深度分析 |
 | 全量构建工作流 | `.github/workflows/full-build.yml` | 手动触发全量构建 |
 | 每日更新工作流 | `.github/workflows/daily-update.yml` | 定时触发增量更新 |
 
-### 2.3 数据格式
-
-论文数据存储在 `data/papers.yaml`，每条记录：
-
-```yaml
-- id: deepcad-2021
-  title: "DeepCAD: A Deep Generative Network for Computer-Aided Design Models"
-  year: 2021
-  venue: "ICCV"
-  category: "Generation"           # LLM 分类结果
-  tags: ["CAD Sequence", "Deep Generative Model", "Parametric CAD"]
-  representations: ["CAD Sequence", "Parametric CAD"]
-  input_modalities: ["Latent"]
-  output_modalities: ["CAD Sequence", "CAD Model"]
-  links:
-    paper: "https://arxiv.org/abs/2105.09492"
-    code: "https://github.com/ChrisWu1997/DeepCAD"
-  preview: "/assets/placeholder.svg"
-  sources:
-    - repo: "arxiv"
-      category: "Generation"
-```
-
 ---
 
-## 3. 自动发现上游 Awesome 项目
+## 3. 配置统一方案
 
-### 3.1 设计思路
+### 3.1 设计目标
 
-全量构建时，系统自动在 GitHub 上搜索该研究方向已有的 awesome 项目，直接 clone 并吸纳其数据，避免从零开始。
+- **awesome.yaml 是用户唯一需要编辑的配置文件**
+- 自动生成 `arxiv-daily-researcher/configs/config.json` 和 `.env`
+- 用户无需了解 researcher 的内部配置结构
 
-```
-build.py 全量构建
-    │
-    ├── Phase 1: 自动发现上游 awesome 项目
-    │     │
-    │     ├── 1a. GitHub API 搜索（无需 Token，用量很小）
-    │     │     ├── 按 topic 搜索: topic:awesome + topic:CAD
-    │     │     ├── 按 README 内容搜索: "awesome" + "CAD" in:readme
-    │     │     └── 按仓库名搜索: awesome-CAD in:name
-    │     │
-    │     ├── 1b. 过滤候选
-    │     │     ├── min_stars >= 5
-    │     │     ├── README 包含论文/工具列表（检测 Markdown 表格或列表）
-    │     │     ├── 非 Fork、非 Archived
-    │     │     └── 排除自己（避免循环引用）
-    │     │
-    │     ├── 1c. 按 stars 排序，取 Top 10
-    │     │
-    │     └── 1d. 自动采纳（无需用户确认）
-    │           └── 进入 Phase 2
-    │
-    ├── Phase 2: 吸纳数据
-    │     │
-    │     ├── 2a. 抓取 README（git clone 或 raw 文件）
-    │     ├── 2b. 自动检测格式
-    │     │     ├── 📊 Markdown 表格 → MarkdownTableParser
-    │     │     ├── 📋 Markdown 列表 → MarkdownListParser
-    │     │     ├── 📁 YAML 文件 → YamlParser
-    │     │     └── 📄 JSON 文件 → JsonParser
-    │     ├── 2c. 解析为统一格式
-    │     └── 2d. 去重合并到 data/papers.yaml
-    │
-    ├── Phase 3: arXiv 补充搜索
-    │     ├── 搜索 arXiv 历史论文
-    │     ├── 与已有数据去重
-    │     └── LLM 分类后追加
-    │
-    └── Phase 4: 生成网站
-```
-
-### 3.2 GitHub Search API 策略
-
-| 认证状态 | 频率限制 | 每页结果 | 总结果上限 | 是否够用 |
-|---------|---------|---------|-----------|---------|
-| 未认证（无 Token） | 10 次/分钟 | 5 条 | 前 100 条 | ✅ 够用 |
-| 已认证（有 Token） | 30 次/分钟 | 100 条 | 前 1000 条 | ✅ 更好 |
-
-我们的场景：3-5 个关键词 × 3 种搜索策略 = 9-15 次请求，未认证的 10 次/分钟完全够用。
-
-GitHub Token 为可选项，通过环境变量 `GITHUB_TOKEN` 注入（和 API Key 一样走 Secrets），不配也能工作。
-
-### 3.3 搜索策略详解
-
-```python
-def discover_awesome_sources(keywords):
-    """
-    自动发现 GitHub 上的 awesome 项目
-    使用 GitHub Search API，无需额外爬虫
-    """
-    sources = set()
-    
-    # 策略 1: 按 topic 搜索
-    # 很多 awesome 项目会打 awesome 和 领域 两个 topic
-    for kw in keywords:
-        query = f"topic:awesome topic:{kw}"
-        results = github_api.search_repos(query, sort="stars", order="desc")
-        sources.update(results)
-    
-    # 策略 2: 按 README 内容搜索
-    query = ' '.join(f'"{kw}"' for kw in keywords)
-    query = f'"awesome" "{query}" in:readme'
-    results = github_api.search_repos(query, sort="stars", order="desc")
-    sources.update(results)
-    
-    # 策略 3: 按仓库名搜索
-    for kw in keywords:
-        query = f"awesome-{kw} in:name"
-        results = github_api.search_repos(query, sort="stars", order="desc")
-        sources.update(results)
-    
-    # 过滤
-    filtered = [
-        s for s in sources
-        if s.stars >= 5
-        and not s.archived
-        and not s.fork
-        and has_paper_list(s.readme)
-    ]
-    
-    return sorted(filtered, key=lambda s: s.stars, reverse=True)[:10]
-```
-
-### 3.4 格式自动检测与解析
-
-```python
-class FormatDetector:
-    """自动检测上游仓库的数据格式"""
-    
-    @staticmethod
-    def detect(readme_content: str, repo_files: List[str]) -> str:
-        """检测 README 的格式类型"""
-        
-        # 1. 检查是否有 YAML/JSON 数据文件
-        if any(f.endswith(('.yaml', '.yml')) for f in repo_files):
-            return "yaml"
-        if any(f.endswith('.json') for f in repo_files):
-            return "json"
-        
-        # 2. 检查 README 中是否有 Markdown 表格
-        table_rows = re.findall(r'^\|.+\|.+\|.+$', readme_content, re.MULTILINE)
-        if len(table_rows) > 5:
-            return "markdown_table"
-        
-        # 3. 检查是否有 Markdown 列表
-        list_items = re.findall(r'^\s*-\s+\[.+\]\(.+\)', readme_content, re.MULTILINE)
-        if len(list_items) > 5:
-            return "markdown_list"
-        
-        return "unknown"
-```
-
-#### 支持的格式与解析器
-
-| 格式 | 覆盖率 | 解析器 | 说明 |
-|------|--------|--------|------|
-| Markdown 表格 | ~90% | `MarkdownTableParser` | 大多数 awesome 项目使用 |
-| Markdown 列表 | ~8% | `MarkdownListParser` | 少数项目使用 |
-| YAML 文件 | ~1% | `YamlParser` | 结构化数据，解析最简单 |
-| JSON 文件 | ~1% | `JsonParser` | 同上 |
-
-#### Markdown 表格解析器
-
-支持多种常见的 awesome 表格列名自动映射：
-
-```python
-COLUMN_MAP = {
-    "title": ["title", "paper", "name"],
-    "venue": ["venue", "conference", "journal", "publication"],
-    "year": ["year", "date"],
-    "links": ["links", "link", "code", "github", "resources"],
-}
-```
-
-### 3.5 配置示例
+### 3.2 awesome.yaml（增强版）
 
 ```yaml
-# awesome.yaml — 用户只需填这个
-project:
-  name: "Awesome CAD Hub"
-  description: "A curated hub for CAD papers..."
+# =============================================================================
+# awesome-hub-generator 配置文件
+# 用户只需编辑此文件，其余自动生成
+# =============================================================================
 
-research:
-  keywords: ["CAD", "B-Rep", "parametric CAD"]
-  arxiv_categories: ["cs.CV", "cs.GR"]
-  date_from: "2020-01-01"
-
-  # 自动发现配置
-  auto_discover:
-    enabled: true
-    min_stars: 5           # 最少 star 数
-    max_sources: 10        # 最多吸纳几个上游源
-```
-
-### 3.6 设计决策
-
-| 决策 | 选择 | 理由 |
-|------|------|------|
-| 是否需要爬虫工具 | ❌ 不需要 | GitHub Search API 完全够用，AgentReach 等工具不适合批处理场景 |
-| 是否要求用户配 Token | ❌ 不要求 | 未认证 10次/分钟，我们的场景完全够用 |
-| 自动采纳还是用户确认 | ✅ 自动采纳 | 用户不需要知道有哪些上游源 |
-| 是否配置已知源 | ❌ 不配置 | 假设用户完全不知道有哪些上游源 |
-| 解析器优先级 | 表格 → 列表 → YAML/JSON | 覆盖 90%+ 的 awesome 项目 |
-
-### 3.7 风险与应对
-
-| 风险 | 应对 |
-|------|------|
-| 搜到不相关的仓库 | `min_stars` 过滤 + `has_paper_list()` 检测 README 是否包含论文列表 |
-| 仓库格式无法解析 | 报错跳过该仓库，不影响整体流程 |
-| 数据过时 | 以 arXiv 最新搜索为准，上游数据仅作为基础 |
-| GitHub API 限流 | 未认证 10次/分钟够用；配 Token 后 30次/分钟更充裕 |
-
-### 4.1 API Key 管理
-
-**核心原则：Key 永不进代码仓库。**
-
-| 场景 | 存储位置 | 安全机制 |
-|------|---------|---------|
-| GitHub Actions | GitHub Secrets（AES-256 加密） | 运行时注入环境变量，不出现在日志中 |
-| 本地开发 | `.env` 文件 | 已在 `.gitignore` 中，git 不会跟踪 |
-
-### 4.2 环境变量
-
-```bash
-# .env.example — 用户复制为 .env 后填写
-ARK_API_KEY=sk-your-key-here           # 火山引擎 API Key
-ARK_API_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
-ARK_MODEL_NAME=deepseek-v4-flash-260425
-```
-
-在 GitHub Actions 中，用户需配置以下 Secrets：
-
-| Secret 名称 | 说明 |
-|-------------|------|
-| `ARK_API_KEY` | 火山引擎 API Key |
-| `ARK_API_BASE_URL` | API 地址（可选，有默认值） |
-| `ARK_MODEL_NAME` | 模型名（可选，有默认值） |
-
----
-
-## 5. 实现计划
-
-### Phase 1: 核心框架 ✅ (已完成)
-
-- [x] 项目目录结构
-- [x] `awesome.yaml` 配置模板
-- [x] Astro 网站模板（含占位符渲染）
-- [x] `scripts/sync.py` — arXiv 搜索 + LLM 分类 + YAML 输出
-- [x] `scripts/build.py` — 全量构建入口
-- [x] `scripts/update.py` — 每日更新入口
-- [x] GitHub Actions 工作流（full-build + daily-update）
-- [x] `arxiv-daily-researcher` git submodule
-- [x] README 和文档
-
-### Phase 2: 自动发现与吸纳 ✅ (已完成)
-
-- [x] `scripts/discover_sources.py` — GitHub API 搜索 + 过滤 + 排序
-- [x] `scripts/ingest_source.py` — 格式检测 + 多格式解析器（表格/列表/YAML/JSON）
-- [x] 集成到 `scripts/build.py` 全量构建流程
-- [ ] 用 `awesome-cad-hub` 配置跑通全量构建
-- [ ] 验证 LLM 分类质量
-- [ ] 验证每日更新流程
-- [ ] 验证 GitHub Pages 部署
-
-### Phase 3: 开源准备（待完成）
-
-- [ ] 完善 CONTRIBUTING.md
-- [ ] 添加 LICENSE 文件
-- [ ] 添加示例站点截图
-- [ ] 发布到 GitHub
-
----
-
-## 6. 使用指南
-
-### 6.1 用户流程
-
-```
-1. Fork awesome-hub-generator
-2. 编辑 awesome.yaml（填研究方向）
-3. 在 GitHub Secrets 配置 ARK_API_KEY
-4. 手动触发 Full build 工作流
-5. 得到自动生成的 awesome 页面
-6. 之后每天自动更新
-```
-
-### 6.2 配置示例（CAD 方向）
-
-```yaml
 project:
   name: "Awesome CAD Hub"
   description: "A curated hub for CAD papers, datasets, tools, and Neural CAD research."
+  github_url: "https://github.com/your-username/awesome-cad-hub"
   site_url: "https://your-username.github.io/awesome-cad-hub"
 
 research:
+  # === 搜索关键词（支持引号包裹短语） ===
   keywords:
     - "CAD"
     - "B-Rep"
     - "parametric CAD"
     - "CAD generation"
+    - "CAD reconstruction"
     - "text-to-CAD"
+    - "CAD program"
+
+  # === 负向关键词（命中直接排除） ===
+  negative_keywords:
+    - "medical imaging"
+    - "weather forecast"
+    - "protein folding"
+    - "drug discovery"
+
+  # === 领域加分词（额外加权） ===
+  domain_boost_keywords:
+    - "neural CAD"
+    - "generative CAD"
+    - "point cloud"
+    - "mesh"
+
+  # === arXiv 分类过滤 ===
   arxiv_categories:
     - "cs.CV"
     - "cs.GR"
     - "cs.LG"
+    - "cs.AI"
+
+  # === 全量构建的起始日期 ===
   date_from: "2020-01-01"
+
+  # === 每日搜索的天数范围 ===
+  daily_search_days: 3
+
+  # === 自动发现 GitHub 已有 awesome 项目 ===
+  auto_discover:
+    enabled: true
+    min_stars: 5
+    max_sources: 10
+
+  # === 评分配置 ===
+  scoring:
+    base_score: 1.5            # 基础分
+    weight_coefficient: 2.5    # 权重系数
+    max_score_per_keyword: 10  # 每个关键词最高分
+    author_bonus:              # 专家作者加分
+      enabled: true
+      bonus_points: 5.0
+      expert_authors: []
+
+  # === 深度分析配置 ===
+  deep_analysis:
+    enabled: true               # 是否对高分论文做 PDF 深度分析
+    min_score: 30               # 最低评分门槛
+    pdf_parser: "pymupdf"       # pymupdf（本地）或 mineru（云端）
+    max_papers_per_run: 10      # 每次运行最多分析多少篇
+
+  # === 关键词趋势追踪 ===
+  keyword_tracking:
+    enabled: true
+    report_frequency: "weekly"  # daily / weekly / monthly / always
+
+website:
+  sections:
+    papers: true
+    datasets: true
+    tools: true
+  nav:
+    - label: "Home"
+      href: "/"
+    - label: "Papers"
+      href: "/papers"
+    - label: "Trends"
+      href: "/trends"
+    - label: "Datasets"
+      href: "/datasets"
+    - label: "Tools"
+      href: "/tools"
+  footer: |
+    Built with <a href="https://github.com/your-username/awesome-hub-generator">awesome-hub-generator</a>.
+```
+
+### 3.3 配置桥接器（config_bridge.py）
+
+```python
+"""
+config_bridge.py — 配置桥接器
+
+将 awesome.yaml 转换为 arxiv-daily-researcher 所需的：
+1. configs/config.json（搜索、评分、报告配置）
+2. .env（LLM API Key 等敏感信息）
+"""
+
+def awesome_to_researcher_config(awesome_config: dict) -> dict:
+    """将 awesome.yaml 配置转为 researcher 的 config.json 格式"""
+    research = awesome_config.get("research", {})
+    scoring = research.get("scoring", {})
+    
+    return {
+        "search_settings": {
+            "search_days": research.get("daily_search_days", 3),
+            "max_results": 100,
+        },
+        "target_domains": {
+            "domains": research.get("arxiv_categories", ["cs.CV", "cs.LG"]),
+        },
+        "keywords": {
+            "primary_keywords": {
+                "weight": 1.0,
+                "keywords": research.get("keywords", []),
+            },
+            "negative_keywords": research.get("negative_keywords", []),
+            "domain_boost_keywords": research.get("domain_boost_keywords", []),
+            "research_context": f"研究方向: {awesome_config['project']['name']}",
+        },
+        "scoring_settings": {
+            "keyword_relevance_score": {
+                "max_score_per_keyword": scoring.get("max_score_per_keyword", 10),
+            },
+            "author_bonus": scoring.get("author_bonus", {"enabled": False}),
+            "passing_score_formula": {
+                "base_score": scoring.get("base_score", 1.5),
+                "weight_coefficient": scoring.get("weight_coefficient", 2.5),
+            },
+            "include_all_in_report": True,
+        },
+        # ... 更多映射
+    }
 ```
 
 ---
 
-## 7. 技术选型
+## 4. 适配层设计（researcher_adapter.py）
 
-| 技术 | 用途 | 选择理由 |
-|------|------|---------|
-| Python 3.11 | 脚本语言 | 生态丰富，arXiv API 友好 |
-| Astro 4 | 静态网站生成 | 高性能，组件化，当前项目已在用 |
-| arXiv API | 论文搜索 | 免费，无需 API Key |
-| volcengine-python-sdk | LLM 调用 | 火山引擎 DeepSeek，原生 SDK 支持 responses API |
-| arxiv-daily-researcher | 论文发现引擎 | 成熟的开源工具，两种模式都支持 |
-| GitHub Actions | CI/CD | 免费，与 GitHub Pages 深度集成 |
-| GitHub Pages | 网站托管 | 免费静态托管 |
+### 4.1 设计目标
+
+- 直接 Python import 调用 `DailyResearchPipeline`，而非 subprocess
+- 获取结构化的 `RunResult`，而非解析 markdown 报告
+- 将 researcher 的输出转换为 `papers.yaml` 格式
+- 保留评分、TLDR、深度分析等富信息
+
+### 4.2 接口设计
+
+```python
+"""
+researcher_adapter.py — arxiv-daily-researcher 适配层
+
+职责：
+1. 配置同步：确保 researcher 的 config.json 与 awesome.yaml 一致
+2. 调用执行：直接 import 调用 DailyResearchPipeline
+3. 结果转换：将 RunResult 转为 papers.yaml 格式
+4. 历史管理：维护论文去重状态
+"""
+
+class ResearcherAdapter:
+    """
+    arxiv-daily-researcher 适配器。
+    
+    封装 researcher 的调用细节，对外提供简洁接口。
+    """
+    
+    def __init__(self, awesome_config: dict):
+        self.config = awesome_config
+        self.researcher_dir = ROOT / "arxiv-daily-researcher"
+    
+    def sync_config(self) -> None:
+        """将 awesome.yaml 同步到 researcher 的 config.json 和 .env"""
+        # 1. 生成 config.json
+        researcher_config = awesome_to_researcher_config(self.config)
+        config_path = self.researcher_dir / "configs" / "config.json"
+        config_path.write_text(json.dumps(researcher_config, indent=2))
+        
+        # 2. 生成 .env（从当前环境变量）
+        env_path = self.researcher_dir / ".env"
+        env_vars = {
+            "CHEAP_LLM__API_KEY": os.environ.get("ARK_API_KEY", ""),
+            "CHEAP_LLM__BASE_URL": os.environ.get("ARK_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
+            "CHEAP_LLM__MODEL_NAME": os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash-260425"),
+            "SMART_LLM__API_KEY": os.environ.get("ARK_API_KEY", ""),
+            "SMART_LLM__BASE_URL": os.environ.get("ARK_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
+            "SMART_LLM__MODEL_NAME": os.environ.get("SMART_MODEL_NAME", "deepseek-v4-flash-260425"),
+        }
+        # ... 写入 .env
+    
+    def run_daily_research(self) -> RunResult:
+        """运行每日研究模式，返回结构化结果"""
+        # 先同步配置
+        self.sync_config()
+        
+        # 直接 import 调用（而非 subprocess）
+        sys.path.insert(0, str(self.researcher_dir / "src"))
+        from config import settings
+        from modes.daily_research import DailyResearchPipeline
+        
+        # 重新加载配置
+        settings.load_from_search_config()
+        
+        # 执行 pipeline
+        pipeline = DailyResearchPipeline()
+        result = pipeline.run()
+        return result
+    
+    def convert_to_papers_yaml(self, result: RunResult) -> List[dict]:
+        """将 RunResult 转换为 papers.yaml 格式"""
+        papers = []
+        for source, scored_list in result.scored_papers_by_source.items():
+            for scored in scored_list:
+                paper = scored["paper_metadata"]
+                score_resp = scored["score_response"]
+                
+                entry = {
+                    "id": slugify(f"{paper.title[:60]}-{paper.published_date.year}"),
+                    "title": paper.title,
+                    "year": paper.published_date.year,
+                    "venue": infer_venue(paper.categories),
+                    "category": "Others",  # 后续可用 LLM 再分类
+                    "tags": score_resp.extracted_keywords[:8],
+                    "links": {
+                        "paper": paper.url,
+                        "pdf": paper.pdf_url,
+                    },
+                    "score": {
+                        "total": score_resp.total_score,
+                        "keyword_scores": score_resp.keyword_scores,
+                        "author_bonus": score_resp.author_bonus,
+                        "passing_score": score_resp.passing_score,
+                        "is_qualified": score_resp.is_qualified,
+                    },
+                    "tldr": score_resp.tldr,
+                    "reasoning": score_resp.reasoning,
+                    "preview": "/assets/placeholder.svg",
+                    "sources": [{"repo": source, "category": "arxiv"}],
+                }
+                
+                # 如果有深度分析结果
+                analysis = result.analyses_by_source.get(source, [])
+                for a in analysis:
+                    if a.get("paper_id") == paper.paper_id:
+                        entry["analysis"] = a["analysis"]
+                        break
+                
+                papers.append(entry)
+        
+        return papers
+```
+
+### 4.3 调用关系
+
+```
+update.py / build.py
+    │
+    ├── config_bridge.sync_config()
+    │     └── 写入 arxiv-daily-researcher/configs/config.json
+    │     └── 写入 arxiv-daily-researcher/.env
+    │
+    ├── ResearcherAdapter.run_daily_research()
+    │     └── import DailyResearchPipeline
+    │     └── pipeline.run()
+    │     └── 返回 RunResult（结构化数据）
+    │
+    ├── ResearcherAdapter.convert_to_papers_yaml()
+    │     └── 将 RunResult 转为 List[dict]
+    │     └── 保留 score / tldr / analysis 字段
+    │
+    ├── sync_papers()  # 去重合并到 papers.yaml
+    │
+    └── build_site()   # 重新生成网站
+```
 
 ---
 
-## 8. 附录
+## 5. 增强数据模型
 
-### 8.1 相关开源项目调研
+### 5.1 papers.yaml（增强版）
 
-见 [调研笔记](./docs/research-notes.md)（待创建）。
+```yaml
+- id: pi0-2025
+  title: "Pi0: A Vision-Language-Action Flow Model"
+  year: 2025
+  venue: "arXiv"
+  category: "Generation"            # LLM 分类
+  tags: ["VLA", "Flow Matching", "Robot Foundation Model", "Imitation Learning"]
+  representations: ["Action Sequence"]
+  input_modalities: ["Image", "Text", "Robot State"]
+  output_modalities: ["Action", "Robot Control"]
+  links:
+    paper: "https://arxiv.org/abs/2504.12345"
+    code: "https://github.com/example/pi0"
+    project: "https://pi0.example.com"
+  preview: "/assets/papers/pi0-2025/teaser.png"
+  
+  # === 新增：评分信息 ===
+  score:
+    total: 85.5
+    keyword_scores:
+      "world model": 9.0
+      "diffusion model": 8.0
+      "embodied ai": 9.5
+    author_bonus: 0.0
+    passing_score: 20.0
+    is_qualified: true
+  
+  # === 新增：一句话摘要 ===
+  tldr: "提出了一种基于流匹配的视觉-语言-动作基础模型，在多个机器人操作任务上达到 SOTA。"
+  
+  # === 新增：评分理由 ===
+  reasoning: "论文核心方法涉及流匹配（与扩散模型相关），面向具身 AI 和机器人操作，与关键词高度相关。"
+  
+  # === 新增：深度分析 ===
+  analysis:
+    innovations:
+      - "首次将流匹配应用于 VLA 基础模型训练"
+      - "提出跨本体动作表示方法"
+    methodology: "基于预训练 VLM，使用流匹配目标在机器人数据集上微调..."
+    key_results: "在 7 个基准上平均提升 15.3%"
+    limitations:
+      - "仅在仿真环境中验证"
+      - "需要大规模计算资源"
+    tech_stack: ["Flow Matching", "VLM", "Diffusion Transformer"]
+  
+  sources:
+    - repo: "arxiv"
+      category: "Generation"
+```
 
-### 8.2 关键词参考
+### 5.2 字段说明
 
-不同研究方向的 arXiv 分类参考：
+| 字段 | 来源 | 用途 |
+|------|------|------|
+| `score` | researcher CHEAP_LLM 评分 | 网站排序、筛选、展示评分徽章 |
+| `tldr` | researcher CHEAP_LLM 评分 | 论文卡片展示一句话摘要 |
+| `reasoning` | researcher CHEAP_LLM 评分 | 详情页展示评分依据 |
+| `analysis` | researcher SMART_LLM 深度分析 | 详情页展示完整分析 |
+| `preview` | 多路图片获取（arXiv HTML/项目主页/PDF） | 卡片展示论文 teaser 图 |
 
-| 研究方向 | 推荐 arXiv 分类 |
-|---------|----------------|
-| CAD / 3D 视觉 | cs.CV, cs.GR, cs.LG |
-| NLP / LLM | cs.CL, cs.AI, cs.LG |
-| 机器人 | cs.RO, cs.CV, cs.AI |
-| 计算机图形学 | cs.GR, cs.CV |
-| 机器学习理论 | cs.LG, stat.ML, cs.AI |
+---
+
+## 6. 网站展示增强
+
+### 6.1 论文卡片增强
+
+当前卡片：
+```
+┌──────────────────────────────┐
+│  [placeholder]               │
+│  Pi0: A VLA Flow Model       │
+│  arXiv 2025                  │
+│  Tags: VLA, Flow Matching    │
+└──────────────────────────────┘
+```
+
+增强后卡片：
+```
+┌──────────────────────────────┐
+│  [论文 teaser 图]      ⭐85  │
+│  Pi0: A VLA Flow Model       │
+│  arXiv 2025                  │
+│  "提出了一种基于流匹配的      │
+│    VLA 基础模型..."           │
+│  Tags: VLA, Flow Matching    │
+│  🔥 必读                     │
+└──────────────────────────────┘
+```
+
+### 6.2 论文详情页（新增）
+
+点击卡片后展示详情页：
+
+```
+┌─────────────────────────────────────────┐
+│  Pi0: A Vision-Language-Action Flow ... │
+│  ⭐ 85.5 · arXiv 2025 · 🔥 必读         │
+│  [teaser 图]                            │
+│                                         │
+│  TLDR                                    │
+│  提出了一种基于流匹配的 VLA 基础模型...  │
+│                                         │
+│  📊 评分详情                             │
+│  world model        ██████████ 9.0      │
+│  diffusion model    ████████░░ 8.0      │
+│  embodied ai        ██████████ 9.5      │
+│                                         │
+│  🔬 深度分析                             │
+│  ## 创新点                               │
+│  - 首次将流匹配应用于 VLA 基础模型训练    │
+│  - 提出跨本体动作表示方法                 │
+│  ## 方法                                 │
+│  ...                                     │
+│  ## 局限性                               │
+│  - 仅在仿真环境中验证                     │
+│                                         │
+│  📁 资源                                 │
+│  [PDF] [Code] [Project Page]             │
+└─────────────────────────────────────────┘
+```
+
+### 6.3 关键词趋势页（新增）
+
+```
+┌─────────────────────────────────────────┐
+│  📈 关键词趋势                           │
+│                                         │
+│  过去 30 天出现频率 Top 15               │
+│                                         │
+│  world model        ████████████ 25     │
+│  diffusion model    ██████████ 20       │
+│  VLA                ████████ 16         │
+│  flow matching      ██████ 12           │
+│  ...                                     │
+│                                         │
+│  趋势热图（按周）                         │
+│  ┌────┬────┬────┬────┬────┐             │
+│  │ ██ │ ██ │ ██ │ ██ │ ██ │ world model│
+│  │ ██ │ ██ │ ██ │ ██ │ ██ │ diffusion  │
+│  │ ██ │ ██ │ ██ │ ██ │ ██ │ VLA        │
+│  └────┴────┴────┴────┴────┘             │
+│  W1   W2   W3   W4   W5                │
+└─────────────────────────────────────────┘
+```
+
+---
+
+## 7. 工作流改造
+
+### 7.1 全量构建（build.py）
+
+```
+build.py 全量构建
+    │
+    ├── Phase 1: 自动发现上游 awesome 项目
+    │     └── 同现有逻辑（不变）
+    │
+    ├── Phase 2: arXiv 搜索 + 评分 + 深度分析
+    │     ├── 2a. config_bridge.sync_config()
+    │     │     └── awesome.yaml → researcher config.json + .env
+    │     ├── 2b. ResearcherAdapter.run_daily_research()
+    │     │     └── import DailyResearchPipeline
+    │     │     └── 设置 search_days 为 date_from 至今
+    │     │     └── 返回 RunResult
+    │     ├── 2c. ResearcherAdapter.convert_to_papers_yaml()
+    │     │     └── RunResult → List[dict]
+    │     └── 2d. sync_papers() 去重合并到 papers.yaml
+    │
+    ├── Phase 3: 生成 Astro 网站
+    │     └── 同现有逻辑（模板渲染 + npm build）
+    │
+    └── Phase 4: 部署到 GitHub Pages
+          └── 同现有逻辑
+```
+
+### 7.2 每日更新（update.py）
+
+```
+update.py 每日更新
+    │
+    ├── Step 1: config_bridge.sync_config()
+    │
+    ├── Step 2: ResearcherAdapter.run_daily_research()
+    │     ├── 搜索最近 N 天（daily_search_days）
+    │     ├── CHEAP_LLM 评分筛选
+    │     ├── SMART_LLM 深度分析（高分论文）
+    │     └── 返回 RunResult
+    │
+    ├── Step 3: 转换为 papers.yaml 并去重合并
+    │
+    ├── Step 4: 关键词趋势处理
+    │     └── 读取 researcher 的 keywords.db
+    │     └── 生成趋势数据供网站展示
+    │
+    └── Step 5: 重新构建网站 + 部署
+```
+
+### 7.3 Fallback 策略
+
+当 `arxiv-daily-researcher` 不可用时（如 submodule 未初始化），自动降级到现有的 `sync.py`：
+
+```python
+def run_paper_discovery(config):
+    """运行论文发现，优先使用 researcher，失败时降级"""
+    try:
+        adapter = ResearcherAdapter(config)
+        result = adapter.run_daily_research()
+        return adapter.convert_to_papers_yaml(result)
+    except (ImportError, FileNotFoundError) as e:
+        logger.warning(f"researcher 不可用 ({e})，降级到 sync.py")
+        from sync import search_arxiv
+        papers = search_arxiv(...)
+        return papers
+```
+
+---
+
+## 8. GitHub Actions 环境变量
+
+### 8.1 统一环境变量
+
+用户只需配置一套环境变量，脚本自动分发给 researcher：
+
+```bash
+# .env.example — 用户唯一需要配置的
+ARK_API_KEY=sk-your-key-here
+ARK_API_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+ARK_MODEL_NAME=deepseek-v4-flash-260425     # 用于 CHEAP_LLM（评分）
+SMART_MODEL_NAME=deepseek-v4-flash-260425   # 用于 SMART_LLM（深度分析，可选）
+```
+
+### 8.2 GitHub Secrets
+
+| Secret 名称 | 对应 researcher 变量 | 说明 |
+|-------------|---------------------|------|
+| `ARK_API_KEY` | `CHEAP_LLM__API_KEY` + `SMART_LLM__API_KEY` | 共用同一个 Key |
+| `ARK_API_BASE_URL` | `CHEAP_LLM__BASE_URL` + `SMART_LLM__BASE_URL` | API 地址 |
+| `ARK_MODEL_NAME` | `CHEAP_LLM__MODEL_NAME` | 评分用模型 |
+| `SMART_MODEL_NAME` | `SMART_LLM__MODEL_NAME` | 深度分析用模型（默认同 ARK_MODEL_NAME） |
+
+---
+
+## 9. 实现计划
+
+### Phase 1: 配置桥接 ✅
+
+- [x] 设计 `awesome.yaml` 增强版（含评分/负向关键词/深度分析配置）
+- [x] 实现 `scripts/config_bridge.py`
+  - [x] `awesome_to_researcher_config()` — 配置映射
+  - [x] `generate_env_file()` — .env 自动生成
+  - [x] `sync_config()` — 一键同步
+
+### Phase 2: 适配层 ✅
+
+- [x] 实现 `scripts/researcher_adapter.py`
+  - [x] `ResearcherAdapter.sync_config()` — 配置同步
+  - [x] `ResearcherAdapter.run_daily_research()` — Python import 调用
+  - [x] `ResearcherAdapter.convert_to_papers_yaml()` — 结果转换
+  - [x] `ResearcherAdapter.deduplicate()` — 去重合并
+
+### Phase 3: 改造构建流程 ✅
+
+- [x] 改造 `scripts/build.py`
+  - [x] Phase 2 替换为 researcher 调用（含 fallback）
+  - [x] 保留上游 awesome 项目吸纳逻辑
+  - [x] 保留 fallback 到 sync.py
+- [x] 改造 `scripts/update.py`
+  - [x] 替换 subprocess 调用为 Python import
+  - [x] 替换 markdown 解析为结构化数据
+  - [x] 集成 fallback 机制
+
+### Phase 4: 网站增强 ✅
+
+- [x] 论文卡片展示评分徽章和 TLDR
+- [x] 论文详情页（含深度分析）
+- [x] 关键词趋势页
+- [x] 论文 teaser 图自动获取（`scripts/fetch_teasers.py`）
+
+### Phase 5: 验证与优化 ✅
+
+- [x] 43 个单元测试全部通过
+- [x] Astro 构建验证（25 页面生成成功）
+- [x] Fallback 机制验证
+- [x] 数据模型升级验证（ScoreInfo / AnalysisInfo 类型）
+
+---
+
+## 10. 风险与应对
+
+| 风险 | 影响 | 应对 |
+|------|------|------|
+| researcher 的 API 变化 | 适配层失效 | 锁定 submodule 版本，适配层加测试 |
+| 双 LLM 调用增加成本 | 运行成本上升 | CHEAP_LLM 用低成本模型（如 deepseek-flash），仅高分论文调 SMART_LLM |
+| researcher 的 config.json 格式变化 | 配置同步失败 | config_bridge 加 schema 校验 |
+| GitHub Actions 运行超时 | 构建失败 | 限制深度分析数量（max_papers_per_run），增加超时时间 |
+| 用户只有一个 API Key | 无法区分 CHEAP/SMART | 默认共用同一个 Key，仅区分 model_name |
+
+---
+
+## 11. 附录
+
+### 11.1 与 dailypaper-skills 的对比借鉴
+
+| 特性 | dailypaper-skills | 我们的方案 |
+|------|-------------------|-----------|
+| 运行环境 | Claude Code Skills | Python 脚本 + GitHub Actions |
+| 输出目标 | Obsidian 笔记 | Astro 静态网站 |
+| 评分机制 | 关键词命中（标题+3，摘要+1） | LLM 逐关键词评分（0-10）× 权重 |
+| 图片获取 | arXiv HTML → 项目主页 → PDF | 同左（后续实现） |
+| 概念库 | Obsidian [[双向链接]] | 关键词趋势追踪 + 标签系统 |
+| 去重 | .history.json 30 天 | researcher 内置历史 + 标题/ID 去重 |
+
+### 11.2 技术选型
+
+| 技术 | 用途 | 选择理由 |
+|------|------|---------|
+| Python 3.11 | 脚本语言 | 生态丰富，与 researcher 一致 |
+| Astro 4 | 静态网站生成 | 高性能，组件化 |
+| arxiv-daily-researcher | 论文发现引擎 | 成熟开源，双 LLM 策略，深度分析 |
+| GitHub Actions | CI/CD | 免费，与 GitHub Pages 集成 |
+| GitHub Pages | 网站托管 | 免费静态托管 |
+| volcengine-python-sdk | LLM 调用 | 火山引擎 DeepSeek |

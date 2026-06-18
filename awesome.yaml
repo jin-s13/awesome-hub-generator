@@ -1,8 +1,6 @@
 # =============================================================================
 # awesome-hub-generator 配置文件
-# =============================================================================
-# Fork 本项目后，修改此文件即可生成你自己的 awesome 研究页面。
-# API Key 通过 .env 或 GitHub Secrets 注入，不会出现在此文件中。
+# 用户只需编辑此文件，其余自动生成
 # =============================================================================
 
 project:
@@ -12,7 +10,7 @@ project:
   site_url: "https://your-username.github.io/awesome-cad-hub"
 
 research:
-  # 搜索关键词（支持引号包裹短语）
+  # === 搜索关键词（支持引号包裹短语） ===
   keywords:
     - "CAD"
     - "B-Rep"
@@ -22,34 +20,60 @@ research:
     - "text-to-CAD"
     - "CAD program"
 
-  # arXiv 分类过滤
+  # === 负向关键词（命中直接排除） ===
+  negative_keywords:
+    - "medical imaging"
+    - "weather forecast"
+    - "protein folding"
+    - "drug discovery"
+
+  # === 领域加分词（额外加权） ===
+  domain_boost_keywords:
+    - "neural CAD"
+    - "generative CAD"
+    - "point cloud"
+    - "mesh"
+
+  # === arXiv 分类过滤 ===
   arxiv_categories:
     - "cs.CV"
     - "cs.GR"
     - "cs.LG"
     - "cs.AI"
 
-  # 全量构建的起始日期
+  # === 全量构建的起始日期 ===
   date_from: "2020-01-01"
 
-  # 每日搜索的天数范围
+  # === 每日搜索的天数范围 ===
   daily_search_days: 3
 
-  # 自动发现 GitHub 上已有的 awesome 项目
-  # 系统会自动搜索并吸纳相关数据，无需手动指定上游源
-  auto_discover:
+  # === 评分配置 ===
+  scoring:
+    base_score: 1.5            # 基础分
+    weight_coefficient: 2.5    # 权重系数
+    max_score_per_keyword: 10  # 每个关键词最高分
+    author_bonus:              # 专家作者加分
+      enabled: false
+      bonus_points: 5.0
+      expert_authors: []
+
+  # === 深度分析配置 ===
+  deep_analysis:
+    enabled: true               # 是否对高分论文做 PDF 深度分析
+    min_score: 30               # 最低评分门槛
+    pdf_parser: "pymupdf"       # pymupdf（本地）或 mineru（云端）
+    max_papers_per_run: 10      # 每次运行最多分析多少篇
+
+  # === 关键词趋势追踪 ===
+  keyword_tracking:
     enabled: true
-    min_stars: 5           # 最少 star 数，过滤低质量项目
-    max_sources: 10        # 最多吸纳几个上游源
+    report_frequency: "weekly"  # daily / weekly / monthly / always
 
 website:
-  # 启用的页面
   sections:
     papers: true
     datasets: true
     tools: true
-
-  # 导航链接
   nav:
     - label: "Home"
       href: "/"
@@ -59,8 +83,5 @@ website:
       href: "/datasets"
     - label: "Tools"
       href: "/tools"
-
-  # 页脚归属信息
   footer: |
     Built with <a href="https://github.com/your-username/awesome-hub-generator">awesome-hub-generator</a>.
-    Source attribution is preserved per entry.

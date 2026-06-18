@@ -239,8 +239,9 @@ img { max-width: 100%; height: auto; display: block; }
 }
 
 .preview-wrap {
+  display: block;
   width: 100%;
-  height: 160px;
+  aspect-ratio: 16 / 9;
   overflow: hidden;
   background: var(--color-surface);
 }
@@ -277,6 +278,46 @@ img { max-width: 100%; height: auto; display: block; }
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+.paper-body h3 a { color: inherit; }
+.paper-body h3 a:hover { color: var(--color-primary); text-decoration: none; }
+
+.paper-tldr {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  margin-bottom: 10px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ---- Score Badge ---- */
+
+.score-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  line-height: 1.4;
+}
+.score-high {
+  background: #dcfce7;
+  color: #166534;
+}
+.score-medium {
+  background: #fef9c3;
+  color: #854d0e;
+}
+.score-low {
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 .tag-row {
