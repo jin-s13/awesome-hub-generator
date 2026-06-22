@@ -118,13 +118,14 @@ awesome-hub-generator/
 │   ├── full-build.yml           # 全量构建工作流
 │   ├── daily-update.yml         # 每日更新工作流
 │   └── fetch-teasers.yml        # 论文 teaser 图定时获取
-├── data/                        # 论文/数据集/工具数据
-│   ├── papers.yaml
-│   ├── datasets.yaml
-│   └── tools.yaml
-└── output/website/              # 生成的网站（自动创建）
-    ├── src/                     # Astro 源码
-    └── dist/                    # 构建产物（部署到 GitHub Pages）
+├── .local/                      # 产出物目录（gitignore）
+│   ├── data/                    # 论文/数据集/工具数据
+│   │   ├── papers.yaml
+│   │   ├── datasets.yaml
+│   │   └── tools.yaml
+│   └── website/                 # 生成的网站（自动创建）
+│       ├── src/                 # Astro 源码
+│       └── dist/                # 构建产物（部署到 GitHub Pages）
 ```
 
 ## 工作原理
@@ -183,7 +184,7 @@ awesome-hub-generator/
 
 ### 添加 datasets 和 tools
 
-除了自动生成的论文，你还可以在 `data/datasets.yaml` 和 `data/tools.yaml` 中手动维护数据集和工具列表。
+除了自动生成的论文，你还可以在 `.local/data/datasets.yaml` 和 `.local/data/tools.yaml` 中手动维护数据集和工具列表。注意 `.local/` 已 gitignore，如需持久化请通过 `awesome.yaml` 的 `auto_discover` 配置自动发现上游项目。
 
 ### 调整评分策略
 
@@ -228,7 +229,7 @@ cp .env.example .env
 python scripts/build.py --skip-search --skip-discover --skip-download
 
 # 5. 本地预览
-cd output/website && npm run dev
+cd .local/website && npm run dev
 ```
 
 ## 许可证

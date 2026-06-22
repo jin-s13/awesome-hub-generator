@@ -84,8 +84,10 @@ class TestGenerateEnvFile:
         assert 'SMART_LLM__MODEL_NAME="test-smart-model"' in content
         assert "NOTIFICATIONS_ENABLED=false" in content
 
-    def test_smart_model_defaults_to_cheap(self):
+    def test_smart_model_defaults_to_cheap(self, monkeypatch):
         """SMART_MODEL_NAME should default to ARK_MODEL_NAME if not set."""
+        monkeypatch.delenv("SMART_MODEL_NAME", raising=False)
+        monkeypatch.delenv("ARK_MODEL_NAME", raising=False)
         content = generate_env_file(
             ark_api_key="sk-key", ark_model_name="cheap-model", smart_model_name=None,
         )

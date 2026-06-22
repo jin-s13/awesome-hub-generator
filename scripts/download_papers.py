@@ -56,10 +56,11 @@ _DOWNLOADER = _get_downloader()
 
 
 def load_papers() -> List[Dict]:
-    """从 data/papers.yaml 加载论文列表"""
-    papers_path = ROOT / "data" / "papers.yaml"
+    """从 papers.yaml 加载论文列表"""
+    data_dir = Path(os.environ.get("HUB_DATA_DIR", str(ROOT / ".local/data")))
+    papers_path = data_dir / "papers.yaml"
     if not papers_path.exists():
-        print("[download] 未找到 data/papers.yaml")
+        print(f"[download] 未找到 {papers_path}")
         return []
     with open(papers_path, encoding="utf-8") as f:
         data = yaml.safe_load(f)

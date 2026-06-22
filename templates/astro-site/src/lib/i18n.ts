@@ -12,6 +12,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'nav.trends': { en: 'Trends', zh: '趋势' },
   'nav.datasets': { en: 'Datasets', zh: '数据集' },
   'nav.tools': { en: 'Tools', zh: '工具' },
+  'nav.resources': { en: 'Resources', zh: '资源' },
   'brand.subtitle': { en: 'Papers · Datasets · Tools', zh: '论文 · 数据集 · 工具' },
   'nav.github': { en: 'GitHub', zh: 'GitHub' },
 
@@ -29,6 +30,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'stat.papers': { en: 'Papers', zh: '论文' },
   'stat.datasets': { en: 'Datasets', zh: '数据集' },
   'stat.tools': { en: 'Tools', zh: '工具' },
+  'stat.resources': { en: 'Resources', zh: '资源' },
   'stat.sources': { en: 'Sources', zh: '来源' },
 
   // index.astro - Sections

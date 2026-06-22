@@ -58,8 +58,7 @@ class TestGenerateReadmeWithTable:
         )
         config = {"project": {"name": "Test Hub", "description": "A test hub."}}
 
-        with patch("scripts.build.ROOT", tmp_path):
-            generate_readme_with_table(config, tmp_path)
+        generate_readme_with_table(config, tmp_path, data_dir)
 
         readme = tmp_path / "README.md"
         assert readme.exists()

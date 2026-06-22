@@ -13,6 +13,7 @@ import io
 import logging
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -41,8 +42,8 @@ if _env_path.exists():
 logger = logging.getLogger("fetch_teasers")
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = ROOT / "data"
-ASSETS_DIR = ROOT / "templates" / "astro-site" / "public" / "assets" / "papers"
+DATA_DIR = Path(os.environ.get("HUB_DATA_DIR", str(ROOT / ".local/data")))
+ASSETS_DIR = Path(os.environ.get("HUB_ASSETS_DIR", str(ROOT / "templates" / "astro-site" / "public" / "assets" / "papers")))
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; awesome-hub-generator/1.0)",
@@ -53,7 +54,7 @@ HEADERS = {
 MINERU_BASE_URL = "https://mineru.net/api/v4"
 MINERU_API_KEY = os.environ.get("MINERU_API_KEY", "")
 MINERU_POLL_INTERVAL = 3
-MINERU_POLL_TIMEOUT = 300
+MINERU_POLL_TIMEOUT = 60
 
 
 def _extract_arxiv_id(url: str) -> Optional[str]:
@@ -70,6 +71,14 @@ def _normalize_arxiv_url(src: str, arxiv_id: str) -> str:
         return f"https://arxiv.org{src}"
     # Relative path like "2606.16605v1/figs/ARB4WMb.png"
     return f"https://arxiv.org/html/{src}"
+
+
+def _is_icon_or_logo(src: str) -> bool:
+    """Return True if the image src looks like an icon/logo and should be skipped."""
+    if not src:
+        return False
+    lowered = src.lower()
+    return any(kw in lowered for kw in ("icon", "logo", "favicon", "github", "twitter"))
 
 
 def _fetch_with_retry(url: str, timeout: int = 15, max_retries: int = 2) -> Optional[requests.Response]:
@@ -109,7 +118,7 @@ def _fetch_arxiv_html_teaser(arxiv_id: str) -> Optional[str]:
     for match in figure_pattern.finditer(html):
         img_src = match.group(1)
         img_src = _normalize_arxiv_url(img_src, arxiv_id)
-        if "icon" in img_src.lower() or "logo" in img_src.lower():
+        if _is_icon_or_logo(img_src):
             continue
         return img_src
 
@@ -119,7 +128,7 @@ def _fetch_arxiv_html_teaser(arxiv_id: str) -> Optional[str]:
         re.IGNORECASE,
     )
     for src in img_pattern.findall(html):
-        if "icon" not in src.lower() and "logo" not in src.lower():
+        if not _is_icon_or_logo(src):
             src = _normalize_arxiv_url(src, arxiv_id)
             return src
 
@@ -477,6 +486,14 @@ def fetch_teaser_for_paper(paper: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+class _TeaserTimeout(Exception):
+    pass
+
+
+def _teaser_timeout_handler(signum, frame):
+    raise _TeaserTimeout()
+
+
 def main():
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
@@ -493,6 +510,10 @@ def main():
     logger.info(f"Fetching teasers for {len(papers)} papers...")
     success_count = 0
     skip_count = 0
+    save_interval = 10
+    since_save = 0
+
+    signal.signal(signal.SIGALRM, _teaser_timeout_handler)
 
     for paper in papers:
         preview = paper.get("preview", "")
@@ -500,12 +521,29 @@ def main():
             skip_count += 1
             continue
 
-        result = fetch_teaser_for_paper(paper)
-        if result:
-            paper["preview"] = result
-            success_count += 1
+        try:
+            signal.alarm(120)
+            result = fetch_teaser_for_paper(paper)
+            signal.alarm(0)
+            if result:
+                paper["preview"] = result
+                success_count += 1
+                since_save += 1
+        except _TeaserTimeout:
+            signal.alarm(0)
+            logger.warning(f"    Timeout (120s) for {paper.get('id')}, skipping")
+        except Exception as e:
+            signal.alarm(0)
+            logger.warning(f"    Error for {paper.get('id')}: {e}, skipping")
 
         time.sleep(0.5)
+        if since_save >= save_interval:
+            papers_path.write_text(
+                yaml.dump(papers, allow_unicode=True, sort_keys=False, default_flow_style=False),
+                encoding="utf-8",
+            )
+            logger.info(f"  [checkpoint] saved {success_count} new teasers so far")
+            since_save = 0
 
     if success_count > 0:
         papers_path.write_text(

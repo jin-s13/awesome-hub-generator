@@ -52,6 +52,7 @@ export type Resource = {
   name: string;
   category?: string;
   type?: string;
+  resource_type?: string;
   year?: number;
   language?: string[];
   kernel?: string[];
@@ -84,6 +85,10 @@ export function getTools(): Resource[] {
   return loadYaml<Resource>('data/tools.yaml').sort((a, b) => (a.type || '').localeCompare(b.type || '') || a.name.localeCompare(b.name));
 }
 
+export function getResources(): Resource[] {
+  return loadYaml<Resource>('data/resources.yaml').sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+}
+
 export function uniq<T>(arr: T[]): T[] {
   return Array.from(new Set(arr));
 }
@@ -92,11 +97,18 @@ export function getStats() {
   const papers = getPapers();
   const datasets = getDatasets();
   const tools = getTools();
+  let resources: Resource[] = [];
+  try {
+    resources = getResources();
+  } catch {
+    resources = [];
+  }
   return {
     papers: papers.length,
     datasets: datasets.length,
     tools: tools.length,
-    sources: uniq([...papers, ...datasets, ...tools].flatMap((x: any) => (x.sources || []).map((s: SourceRef) => s.repo))).length,
+    resources: resources.length,
+    sources: uniq([...papers, ...datasets, ...tools, ...resources].flatMap((x: any) => (x.sources || []).map((s: SourceRef) => s.repo))).length,
     years: uniq(papers.map((p) => p.year)).sort((a, b) => b - a),
     categories: uniq(papers.map((p) => p.category)).sort()
   };

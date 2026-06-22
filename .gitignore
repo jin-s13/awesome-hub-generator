@@ -6,7 +6,9 @@ dist/
 __pycache__/
 *.pyc
 output/
+.local/
 resource/
 arxiv-daily-researcher/data/
 arxiv-daily-researcher/.env
 tmp/
+.venv/

@@ -32,6 +32,7 @@ import yaml
 import requests
 from slugify import slugify
 from volcenginesdkarkruntime import Ark
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -163,6 +164,7 @@ def search_arxiv(keywords: List[str], categories: List[str],
             abstract = _clean_xml(_extract_tag(entry, "summary"))
             published = _extract_tag(entry, "published")[:10]
             cats = re.findall(r'term="([^"]+)"', entry)
+            authors = _extract_authors(entry)
 
             links = {"paper": f"https://arxiv.org/abs/{arxiv_id}"}
             code_match = re.search(r"github\.com/[\w\-\.]+/[\w\-\.]+", abstract)
@@ -178,6 +180,7 @@ def search_arxiv(keywords: List[str], categories: List[str],
                     "abstract": abstract,
                     "published": published,
                     "categories": cats,
+                    "authors": authors,
                     "links": links,
                 })
 
@@ -196,6 +199,12 @@ def _extract_arxiv_id(entry: str) -> str:
 def _extract_tag(text: str, tag: str) -> str:
     m = re.search(f"<{tag}[^>]*>(.*?)</{tag}>", text, re.DOTALL)
     return m.group(1).strip() if m else ""
+
+
+def _extract_authors(entry: str) -> List[str]:
+    """Extract author names from an arXiv <entry> XML block."""
+    names = re.findall(r"<author>.*?<name>(.*?)</name>.*?</author>", entry, re.DOTALL)
+    return [_clean_xml(n) for n in names if _clean_xml(n)]
 
 
 def _clean_xml(text: str) -> str:
@@ -254,6 +263,7 @@ def paper_to_yaml(paper: Dict, classification: Dict, source_repo: str = "arxiv")
     return {
         "id": slugify(f"{paper['title'][:60]}-{year}"),
         "title": paper["title"],
+        "authors": paper.get("authors", []),
         "abstract": paper.get("abstract", ""),
         "year": year,
         "venue": infer_venue(paper.get("categories", [])),
@@ -266,6 +276,19 @@ def paper_to_yaml(paper: Dict, classification: Dict, source_repo: str = "arxiv")
         "preview": "/assets/placeholder.svg",
         "sources": [{"repo": source_repo, "category": cat}],
     }
+
+
+def _filter_negative_keywords(papers: List[Dict], negative_keywords: List[str]) -> List[Dict]:
+    """过滤掉标题或摘要命中负向关键词的论文。"""
+    if not negative_keywords:
+        return papers
+    nk_lower = [k.lower() for k in negative_keywords]
+    result = []
+    for p in papers:
+        text = (p.get("title", "") + " " + p.get("abstract", "")).lower()
+        if not any(nk in text for nk in nk_lower):
+            result.append(p)
+    return result
 
 
 def deduplicate(existing: List[Dict], new_items: List[Dict]) -> Tuple[List[Dict], int]:
@@ -289,14 +312,15 @@ def deduplicate(existing: List[Dict], new_items: List[Dict]) -> Tuple[List[Dict]
         added += 1
 
     # Sort: newest year first, then by title
-    merged.sort(key=lambda x: (-int(x.get("year", 0)), x.get("title", "")))
+    merged.sort(key=lambda x: (-int(x.get("year") or 0), x.get("title") or ""))
     return merged, added
 
 
 # ---- 主入口 ----
 
 def sync_papers(new_papers: List[Dict], output_path: Path, source_repo: str = "arxiv",
-                skip_llm: bool = False, max_papers: Optional[int] = None) -> int:
+                skip_llm: bool = False, max_papers: Optional[int] = None,
+                negative_keywords: Optional[List[str]] = None) -> int:
     """
     将新论文同步到 YAML 文件。
     Returns: 新增论文数量
@@ -307,6 +331,13 @@ def sync_papers(new_papers: List[Dict], output_path: Path, source_repo: str = "a
 
     existing = load_yaml(output_path)
     print(f"[sync] 现有论文: {len(existing)} 篇")
+
+    if negative_keywords:
+        before = len(new_papers)
+        new_papers = _filter_negative_keywords(new_papers, negative_keywords)
+        filtered = before - len(new_papers)
+        if filtered:
+            print(f"[sync] 负向关键词过滤: 排除 {filtered} 篇不相关论文")
 
     # LLM 分类
     classified = []
@@ -334,7 +365,7 @@ def main():
     parser.add_argument("--date-from", default="", help="起始日期 YYYYMMDD")
     parser.add_argument("--date-to", default="", help="结束日期 YYYYMMDD")
     parser.add_argument("--max-results", type=int, default=200, help="最大结果数")
-    parser.add_argument("--output", default="data/papers.yaml", help="输出 YAML 路径")
+    parser.add_argument("--output", default=".local/data/papers.yaml", help="输出 YAML 路径")
     parser.add_argument("--source-repo", default="arxiv", help="来源标识")
     parser.add_argument("--skip-llm", action="store_true", help="跳过 LLM 分类")
     parser.add_argument("--arxiv-ids", nargs="+", default=[], help="直接指定 arxiv ID 列表（跳过搜索）")

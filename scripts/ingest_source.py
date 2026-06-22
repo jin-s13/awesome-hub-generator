@@ -26,6 +26,17 @@ from slugify import slugify
 ROOT = Path(__file__).resolve().parents[1]
 
 # ---------------------------------------------------------------------------
+# URL 分类：区分学术论文与非论文资源（实现在 url_classify.py）
+# ---------------------------------------------------------------------------
+from url_classify import (  # noqa: E402
+    is_academic_url,
+    detect_resource_type,
+    entry_is_paper,
+    ACADEMIC_DOMAINS,
+    RESOURCE_TYPE_RULES,
+)
+
+# ---------------------------------------------------------------------------
 # 格式检测
 # ---------------------------------------------------------------------------
 
@@ -224,20 +235,20 @@ class MarkdownListParser:
                 continue
 
             links: Dict[str, str] = {}
-            if "arxiv" in url.lower():
+            if is_academic_url(url):
                 links["paper"] = url
             elif "github.com" in url:
                 links["code"] = url
             else:
-                links["paper"] = url
+                links["link"] = url
 
             paper_id = slugify(title[:60])
 
-            papers.append({
+            entry = {
                 "id": paper_id,
                 "title": title,
                 "year": None,
-                "venue": "arXiv",
+                "venue": "arXiv" if is_academic_url(url) else "",
                 "category": "Others",
                 "tags": [],
                 "representations": [],
@@ -247,7 +258,11 @@ class MarkdownListParser:
                 "preview": "/assets/placeholder.svg",
                 "sources": [{"repo": source_repo, "category": "Others"}],
                 "_description": description[:200] if description else "",
-            })
+            }
+            if not entry_is_paper(entry):
+                entry["_type"] = "resource"
+                entry["resource_type"] = detect_resource_type(url)
+            papers.append(entry)
 
         return papers
 

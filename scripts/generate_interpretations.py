@@ -21,11 +21,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger("generate_interpretations")
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = ROOT / "data"
+DATA_DIR = Path(os.environ.get("HUB_DATA_DIR", str(ROOT / ".local/data")))
 
 # Load .env file if present
 _env_path = ROOT / ".env"
@@ -55,8 +56,29 @@ def _get_ark_client():
     return Ark(base_url=API_BASE_URL, api_key=API_KEY)
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    reraise=True,
+)
+def _llm_call_once(client: Any, messages: List[Dict], model: str, max_tokens: int) -> str:
+    """Single LLM call attempt (retried by tenacity on transient failures)."""
+    response = client.responses.create(
+        model=model,
+        input=messages,
+        temperature=0.1,
+        max_output_tokens=max_tokens,
+    )
+    for output in response.output:
+        if output.type == "message":
+            for content in output.content:
+                if content.type == "output_text":
+                    return content.text
+    return ""
+
+
 def _llm_chat(messages: List[Dict], model: str = "", max_tokens: int = 1024) -> str:
-    """Call LLM."""
+    """Call LLM with automatic retry on transient failures."""
     client = _get_ark_client()
     if not client:
         return ""
@@ -64,20 +86,9 @@ def _llm_chat(messages: List[Dict], model: str = "", max_tokens: int = 1024) -> 
     model = model or MODEL_NAME
 
     try:
-        response = client.responses.create(
-            model=model,
-            input=messages,
-            temperature=0.1,
-            max_output_tokens=max_tokens,
-        )
-        for output in response.output:
-            if output.type == "message":
-                for content in output.content:
-                    if content.type == "output_text":
-                        return content.text
-        return ""
+        return _llm_call_once(client, messages, model, max_tokens)
     except Exception as e:
-        logger.warning(f"LLM call failed: {e}")
+        logger.warning(f"LLM call failed after retries: {e}")
         return ""
 
 
@@ -152,7 +163,7 @@ Abstract: {abstract[:2000]}
 
 Return ONLY valid JSON, no other text."""
 
-    raw = _llm_chat([{"role": "user", "content": prompt}], model=SMART_MODEL, max_tokens=2048)
+    raw = _llm_chat([{"role": "user", "content": prompt}], model=SMART_MODEL, max_tokens=4096)
     if not raw:
         return {}
 
@@ -193,7 +204,7 @@ Return ONLY valid JSON, no other text:
   "abstract_cn": "Chinese translation of the abstract"
 }}"""
 
-    raw = _llm_chat([{"role": "user", "content": prompt}], max_tokens=2048)
+    raw = _llm_chat([{"role": "user", "content": prompt}], max_tokens=4096)
     if not raw:
         return {"title_cn": "", "abstract_cn": ""}
 
@@ -299,6 +310,91 @@ def needs_interpretation(paper: Dict) -> bool:
     return not paper.get("tldr") or not paper.get("reasoning")
 
 
+def _extract_arxiv_id_from_links(links: Dict[str, str]) -> Optional[str]:
+    """从 links 字典中提取 arXiv ID"""
+    for v in (links or {}).values():
+        m = re.search(r"arxiv\.org/(?:abs|html|pdf)/(\d+\.\d+)", str(v))
+        if m:
+            return m.group(1)
+    return None
+
+
+def _fill_missing_abstracts(papers: List[Dict], papers_path: Path) -> int:
+    """对缺少 abstract 的论文，用 arXiv API 批量补充 abstract 和 authors"""
+    import urllib.request
+
+    ARXIV_API = "https://export.arxiv.org/api/query"
+
+    id_to_paper: Dict[str, Dict] = {}
+    for paper in papers:
+        if paper.get("abstract"):
+            continue
+        arxiv_id = _extract_arxiv_id_from_links(paper.get("links", {}))
+        if arxiv_id:
+            id_to_paper[arxiv_id] = paper
+
+    if not id_to_paper:
+        return 0
+
+    logger.info(f"Filling abstracts for {len(id_to_paper)} papers via arXiv API...")
+
+    filled = 0
+    BATCH = 30
+    arxiv_ids = list(id_to_paper.keys())
+
+    for i in range(0, len(arxiv_ids), BATCH):
+        batch = arxiv_ids[i:i + BATCH]
+        id_list = ",".join(batch)
+        url = f"{ARXIV_API}?id_list={id_list}&max_results={len(batch)}"
+
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "awesome-hub-generator/1.0"})
+            resp = urllib.request.urlopen(req, timeout=30)
+            xml = resp.read().decode("utf-8")
+
+            entries = re.findall(r"<entry>(.*?)</entry>", xml, re.DOTALL)
+            for entry in entries:
+                entry_id = re.search(r"<id>(.*?)</id>", entry, re.DOTALL)
+                if not entry_id:
+                    continue
+                m = re.search(r"(\d+\.\d+)", entry_id.group(1))
+                if not m:
+                    continue
+                aid = m.group(1)
+
+                paper = id_to_paper.get(aid)
+                if not paper:
+                    continue
+
+                summary = re.search(r"<summary>(.*?)</summary>", entry, re.DOTALL)
+                if summary:
+                    abstract = re.sub(r"\s+", " ", summary.group(1).strip())
+                    abstract = re.sub(r"&[a-z]+;", "", abstract).strip()
+                    if abstract:
+                        paper["abstract"] = abstract
+                        filled += 1
+
+                if not paper.get("authors"):
+                    names = re.findall(r"<name>(.*?)</name>", entry, re.DOTALL)
+                    authors = [re.sub(r"\s+", " ", n).strip() for n in names if n.strip()]
+                    if authors:
+                        paper["authors"] = authors[:10]
+
+            logger.info(f"  [{i + len(batch)}/{len(arxiv_ids)}] processed, {filled} abstracts filled")
+            time.sleep(3)
+        except Exception as e:
+            logger.warning(f"  arXiv API batch {i} error: {e}")
+
+    if filled > 0:
+        papers_path.write_text(
+            yaml.dump(papers, allow_unicode=True, sort_keys=False, default_flow_style=False),
+            encoding="utf-8",
+        )
+        logger.info(f"  Filled {filled} abstracts, saved to papers.yaml")
+
+    return filled
+
+
 def main():
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
@@ -319,6 +415,9 @@ def main():
         config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
         keywords = config.get("research", {}).get("keywords", [])
 
+    # 补充缺失的 abstract（用 arXiv API 批量拉取）
+    _fill_missing_abstracts(papers, papers_path)
+
     # Find papers needing interpretation
     to_process = [p for p in papers if needs_interpretation(p)]
     if not to_process:
@@ -327,6 +426,9 @@ def main():
         logger.info(f"Generating interpretations for {len(to_process)} papers...")
 
         updated = 0
+        save_interval = 5
+        since_last_save = 0
+
         for i, paper in enumerate(to_process):
             title = paper.get("title", "")
             abstract = paper.get("abstract", "")
@@ -335,31 +437,43 @@ def main():
 
             logger.info(f"  [{i+1}/{len(to_process)}] {title[:60]}...")
 
-            # Step 1: TLDR + reasoning
-            result = generate_tldr_and_reasoning(title, abstract, keywords)
-            if result.get("tldr"):
-                paper["tldr"] = result["tldr"]
-            if result.get("reasoning"):
-                paper["reasoning"] = result["reasoning"]
-            if result.get("keyword_scores"):
-                if "score" not in paper:
-                    paper["score"] = {}
-                paper["score"]["keyword_scores"] = result["keyword_scores"]
-                # Calculate total score
-                scores = result["keyword_scores"].values()
-                if scores:
-                    paper["score"]["total"] = round(sum(scores), 1)
+            try:
+                # Step 1: TLDR + reasoning
+                result = generate_tldr_and_reasoning(title, abstract, keywords)
+                if result.get("tldr"):
+                    paper["tldr"] = result["tldr"]
+                if result.get("reasoning"):
+                    paper["reasoning"] = result["reasoning"]
+                if result.get("keyword_scores"):
+                    if "score" not in paper:
+                        paper["score"] = {}
+                    paper["score"]["keyword_scores"] = result["keyword_scores"]
+                    scores = result["keyword_scores"].values()
+                    if scores:
+                        paper["score"]["total"] = round(sum(scores), 1)
 
-            # Step 2: Deep analysis (only for papers with good scores)
-            total_score = paper.get("score", {}).get("total", 0)
-            if total_score >= 30 and not paper.get("analysis"):
-                logger.debug(f"    Generating deep analysis...")
-                analysis = generate_deep_analysis(title, abstract)
-                if analysis:
-                    paper["analysis"] = analysis
+                # Step 2: Deep analysis (only for papers with good scores)
+                total_score = paper.get("score", {}).get("total", 0)
+                if total_score >= 30 and not paper.get("analysis"):
+                    logger.debug(f"    Generating deep analysis...")
+                    analysis = generate_deep_analysis(title, abstract)
+                    if analysis:
+                        paper["analysis"] = analysis
 
-            updated += 1
+                updated += 1
+                since_last_save += 1
+            except Exception as e:
+                logger.warning(f"    LLM error, skipping: {e}")
+
             time.sleep(0.5)  # Rate limit
+
+            if since_last_save >= save_interval:
+                papers_path.write_text(
+                    yaml.dump(papers, allow_unicode=True, sort_keys=False, default_flow_style=False),
+                    encoding="utf-8",
+                )
+                logger.info(f"  [checkpoint] saved {updated} interpretations so far...")
+                since_last_save = 0
 
         # Save
         if updated > 0:
@@ -388,6 +502,9 @@ def main():
         logger.info(f"Generating Chinese translations for {len(papers_needing_cn)} papers...")
 
         cn_updated = 0
+        cn_save_interval = 5
+        cn_since_save = 0
+
         for i, paper in enumerate(papers_needing_cn):
             title = paper.get("title", "")
             abstract = paper.get("abstract", "")
@@ -396,29 +513,42 @@ def main():
 
             logger.info(f"  [CN {i+1}/{len(papers_needing_cn)}] {title[:60]}...")
 
-            # Translate title and abstract
-            trans_result = translate_title_abstract(title, abstract)
-            if trans_result.get("title_cn"):
-                paper["title_cn"] = trans_result["title_cn"]
-            if trans_result.get("abstract_cn"):
-                paper["abstract_cn"] = trans_result["abstract_cn"]
+            try:
+                # Translate title and abstract
+                trans_result = translate_title_abstract(title, abstract)
+                if trans_result.get("title_cn"):
+                    paper["title_cn"] = trans_result["title_cn"]
+                if trans_result.get("abstract_cn"):
+                    paper["abstract_cn"] = trans_result["abstract_cn"]
 
-            # Generate Chinese TLDR if English TLDR exists
-            tldr_en = paper.get("tldr", "")
-            if tldr_en and not paper.get("tldr_cn"):
-                tldr_cn = generate_tldr_cn(title, abstract, tldr_en)
-                if tldr_cn:
-                    paper["tldr_cn"] = tldr_cn
+                # Generate Chinese TLDR if English TLDR exists
+                tldr_en = paper.get("tldr", "")
+                if tldr_en and not paper.get("tldr_cn"):
+                    tldr_cn = generate_tldr_cn(title, abstract, tldr_en)
+                    if tldr_cn:
+                        paper["tldr_cn"] = tldr_cn
 
-            # Translate analysis if it exists and no Chinese analysis yet
-            analysis = paper.get("analysis")
-            if analysis and not paper.get("analysis_cn"):
-                analysis_cn = translate_analysis(analysis)
-                if analysis_cn:
-                    paper["analysis_cn"] = analysis_cn
+                # Translate analysis if it exists and no Chinese analysis yet
+                analysis = paper.get("analysis")
+                if analysis and not paper.get("analysis_cn"):
+                    analysis_cn = translate_analysis(analysis)
+                    if analysis_cn:
+                        paper["analysis_cn"] = analysis_cn
 
-            cn_updated += 1
+                cn_updated += 1
+                cn_since_save += 1
+            except Exception as e:
+                logger.warning(f"    CN translation error, skipping: {e}")
+
             time.sleep(0.5)  # Rate limit
+
+            if cn_since_save >= cn_save_interval:
+                papers_path.write_text(
+                    yaml.dump(papers, allow_unicode=True, sort_keys=False, default_flow_style=False),
+                    encoding="utf-8",
+                )
+                logger.info(f"  [checkpoint] saved {cn_updated} CN translations so far...")
+                cn_since_save = 0
 
         if cn_updated > 0:
             papers_path.write_text(

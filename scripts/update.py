@@ -74,7 +74,8 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="每日增量更新")
     parser.add_argument("--config", default="awesome.yaml", help="配置文件路径")
-    parser.add_argument("--output", default="output/website", help="网站输出目录")
+    parser.add_argument("--output", default=".local/website", help="网站输出目录")
+    parser.add_argument("--data-dir", default=".local/data", help="数据目录（产出物隔离）")
     parser.add_argument("--skip-researcher", action="store_true",
                         help="跳过 arxiv-daily-researcher（使用 arXiv API fallback）")
     parser.add_argument("--skip-llm", action="store_true", help="跳过 LLM 分类")
@@ -83,7 +84,13 @@ def main():
 
     config = load_config()
     output_dir = (ROOT / args.output).resolve()
-    papers_yaml = ROOT / "data" / "papers.yaml"
+    data_dir = (ROOT / args.data_dir).resolve()
+    data_dir.mkdir(parents=True, exist_ok=True)
+    papers_yaml = data_dir / "papers.yaml"
+
+    import os
+    os.environ["HUB_DATA_DIR"] = str(data_dir)
+    os.environ.setdefault("HUB_ASSETS_DIR", str(data_dir.parent / "assets" / "papers"))
 
     # Step 1: 论文发现
     new_papers: List[Dict[str, Any]] = []
@@ -144,7 +151,7 @@ def main():
         generate_site(config, output_dir)
 
         # Copy data to website directory
-        data_src = ROOT / "data"
+        data_src = data_dir
         data_dst = output_dir / "data"
         if data_src.exists():
             shutil.copytree(data_src, data_dst, dirs_exist_ok=True)

@@ -6,8 +6,9 @@
 project:
   name: "Awesome CAD Hub"
   description: "A curated hub for CAD papers, datasets, tools, and Neural CAD research."
-  github_url: "https://github.com/your-username/awesome-cad-hub"
-  site_url: "https://your-username.github.io/awesome-cad-hub"
+  github_url: "https://github.com/jin-s13/awesome-cad-hub"
+  site_url: "https://jin-s13.github.io/awesome-cad-hub"
+  generator_repo: "jin-s13/awesome-hub-generator"
 
 research:
   # === 搜索关键词（支持引号包裹短语） ===
@@ -22,10 +23,56 @@ research:
 
   # === 负向关键词（命中直接排除） ===
   negative_keywords:
+    # 医学
     - "medical imaging"
     - "weather forecast"
     - "protein folding"
     - "drug discovery"
+    - "cancer detection"
+    - "breast cancer"
+    - "thyroid cancer"
+    - "coronary artery"
+    - "cardiovascular"
+    - "mammogr"
+    - "radiology"
+    - "clinical diagnosis"
+    - "dental"
+    - "caries"
+    - "molar"
+    - "tumor"
+    - "lesion segmentation"
+    - "ECG"
+    - "EEG"
+    - "blood pressure"
+    - "diabetes"
+    - "COVID"
+    - "pneumonia"
+    - "skin lesion"
+    # 金融
+    - "financial"
+    - "stock market"
+    - "trading"
+    - "cryptocurr"
+    - "look-ahead bias"
+    # 机器人/操控
+    - "dexterous manipulation"
+    - "humanoid"
+    - "grasping"
+    - "robot manipulation"
+    # 环境/气候
+    - "climate"
+    - "weather"
+    # 微流控/生物
+    - "microfluidic"
+    - "live-cell"
+    # 其他不相关
+    - "anomaly detection"
+    - "defect detection"
+    - "point cloud registration"
+    - "articulated pose"
+    - "category-level pose"
+    - "egocentric"
+    - "sim-to-real"
 
   # === 领域加分词（额外加权） ===
   domain_boost_keywords:
@@ -61,7 +108,7 @@ research:
   deep_analysis:
     enabled: true               # 是否对高分论文做 PDF 深度分析
     min_score: 30               # 最低评分门槛
-    pdf_parser: "pymupdf"       # pymupdf（本地）或 mineru（云端）
+    pdf_parser: "mineru"       # pymupdf（本地）或 mineru（云端）
     max_papers_per_run: 10      # 每次运行最多分析多少篇
 
   # === 关键词趋势追踪 ===
@@ -84,4 +131,4 @@ website:
     - label: "Tools"
       href: "/tools"
   footer: |
-    Built with <a href="https://github.com/your-username/awesome-hub-generator">awesome-hub-generator</a>.
+    Built with <a href="https://github.com/jin-s13/awesome-hub-generator">awesome-hub-generator</a>.

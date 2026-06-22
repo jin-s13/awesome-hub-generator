@@ -1,19 +1,22 @@
 ---
-import Base from '../../layouts/Base.astro';
-import { getPapers } from '../../lib/data';
-import { useTranslations } from '../../lib/i18n';
-import { getLang, localizePath, type Lang } from '../../lib/lang';
+import Base from '../../../layouts/Base.astro';
+import { getPapers } from '../../../lib/data';
+import { useTranslations } from '../../../lib/i18n';
+import { localizePath, type Lang } from '../../../lib/lang';
 
 export async function getStaticPaths() {
   const papers = getPapers();
-  return papers.map((paper) => ({
-    params: { id: paper.id },
-    props: { paper },
-  }));
+  const langs = ['en', 'zh'] as const;
+  return papers.flatMap((paper) =>
+    langs.map((lang) => ({
+      params: { lang, id: paper.id },
+      props: { paper },
+    }))
+  );
 }
 
-const { paper, lang: _lang } = Astro.props;
-const lang: Lang = _lang || getLang(Astro.url);
+const { paper } = Astro.props;
+const lang = Astro.params.lang as Lang;
 const _t = useTranslations(lang);
 
 // Bilingual content

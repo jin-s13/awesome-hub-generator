@@ -46,14 +46,15 @@ class TestFetchWithRetry:
 
 class TestFetchArxivHtmlTeaser:
     def test_fetch_via_html_parser(self, mocker):
-        mock_parser = mocker.patch("parsers.html_parser.ArxivHtmlParser")
-        mock_parser.return_value.parse.return_value = {
-            "figures": [{"src": "https://arxiv.org/html/x1.png", "caption": "Figure 1: Overview."}],
-        }
+        html = (
+            '<html><body>'
+            '<figure><img src="https://arxiv.org/html/x1.png" alt="Figure 1"/></figure>'
+            '</body></html>'
+        )
+        mock_response = MagicMock(status_code=200, text=html)
+        mocker.patch("scripts.fetch_teasers._fetch_with_retry", return_value=mock_response)
         assert _fetch_arxiv_html_teaser("2303.08774") == "https://arxiv.org/html/x1.png"
     def test_fetch_html_404(self, mocker):
-        mock_parser = mocker.patch("parsers.html_parser.ArxivHtmlParser")
-        mock_parser.return_value.parse.return_value = None
         mocker.patch("scripts.fetch_teasers._fetch_with_retry").return_value = None
         assert _fetch_arxiv_html_teaser("2303.08774") is None
 

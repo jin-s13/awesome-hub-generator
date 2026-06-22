@@ -42,7 +42,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: output/website/package.json
+          cache-dependency-path: .local/website/package.json
 
       - name: Install Python dependencies
         run: python -m pip install -r requirements.txt
@@ -72,6 +72,6 @@ jobs:
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./output/website/dist
+          publish_dir: ./.local/website/dist
           publish_branch: gh-pages
           force_orphan: true

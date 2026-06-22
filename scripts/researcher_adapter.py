@@ -33,7 +33,7 @@ from scripts.config_bridge import (
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = PROJECT_ROOT / "data"
+DATA_DIR = Path(os.environ.get("HUB_DATA_DIR", str(PROJECT_ROOT / ".local/data")))
 
 
 def _slugify(text: str) -> str:
