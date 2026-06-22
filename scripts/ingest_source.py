@@ -63,6 +63,11 @@ class FormatDetector:
         if len(list_items) > 5:
             return "markdown_list"
 
+        # 4. 检查是否有 HTML 列表
+        li_count = len(re.findall(r'<li>', readme_content))
+        if li_count > 5:
+            return "html_list"
+
         return "unknown"
 
 
@@ -148,7 +153,25 @@ class MarkdownTableParser:
                     title = m.group(1).strip()
                     links["paper"] = m.group(2)
                 else:
-                    title = cell.strip()
+                    # 如果 cell 中没有 markdown 链接，尝试直接提取 URL
+                    url_match = re.search(r'https?://[^\s]+', cell)
+                    if url_match:
+                        url = url_match.group(0)
+                        if "arxiv.org" in url:
+                            links["paper"] = url
+                        elif "github.com" in url:
+                            links["code"] = url
+                        else:
+                            links["link"] = url
+                        # 从 URL 周围提取标题文本
+                        title_text = re.sub(r'https?://[^\s]+', '', cell).strip()
+                        title_text = re.sub(r'[|\[\]]', '', title_text).strip()
+                        if title_text:
+                            title = title_text
+                        else:
+                            title = cell.strip()
+                    else:
+                        title = cell.strip()
 
         if not title:
             return None
@@ -263,6 +286,118 @@ class MarkdownListParser:
                 entry["_type"] = "resource"
                 entry["resource_type"] = detect_resource_type(url)
             papers.append(entry)
+
+        # 匹配 HTML <li> 格式
+        li_pattern = r'<li>(.*?)</li>'
+        for match in re.finditer(li_pattern, readme, re.DOTALL):
+            li_content = match.group(1)
+            # 提取链接
+            a_match = re.search(r'<a\s+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', li_content)
+            if not a_match:
+                continue
+
+            url = a_match.group(1)
+            title = re.sub(r'<[^>]+>', '', a_match.group(2)).strip()
+
+            if not title:
+                continue
+
+            # 提取描述（<a> 标签后的文本）
+            description = ""
+            after_link = li_content.split("</a>", 1)
+            if len(after_link) > 1:
+                description = re.sub(r'<[^>]+>', '', after_link[1]).strip()
+                description = re.sub(r'\s+', ' ', description).strip()
+
+            links: Dict[str, str] = {}
+            if is_academic_url(url):
+                links["paper"] = url
+            elif "github.com" in url:
+                links["code"] = url
+            else:
+                links["link"] = url
+
+            paper_id = slugify(title[:60])
+
+            entry = {
+                "id": paper_id,
+                "title": title,
+                "year": None,
+                "venue": "arXiv" if is_academic_url(url) else "",
+                "category": "Others",
+                "tags": [],
+                "representations": [],
+                "input_modalities": [],
+                "output_modalities": [],
+                "links": links,
+                "preview": "/assets/placeholder.svg",
+                "sources": [{"repo": source_repo, "category": "Others"}],
+                "_description": description[:200] if description else "",
+            }
+            if not entry_is_paper(entry):
+                entry["_type"] = "resource"
+                entry["resource_type"] = detect_resource_type(url)
+            papers.append(entry)
+
+        return papers
+
+
+class HtmlListParser:
+    """解析 HTML 列表格式的 awesome 列表"""
+
+    @staticmethod
+    def parse(readme: str, source_repo: str = "") -> List[Dict]:
+        """解析 HTML 列表，返回论文条目列表"""
+        papers: List[Dict] = []
+
+        # 匹配 <li> 标签
+        li_pattern = re.compile(r'<li>(.*?)</li>', re.DOTALL)
+        for match in li_pattern.finditer(readme):
+            li_content = match.group(1)
+
+            # 提取 <a> 标签
+            a_match = re.search(r'<a\s+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', li_content)
+            if not a_match:
+                continue
+
+            url = a_match.group(1)
+            title = re.sub(r'<[^>]+>', '', a_match.group(2)).strip()
+
+            if not title:
+                continue
+
+            # 提取描述（<a> 标签后的文本）
+            desc = ""
+            after_link = li_content.split("</a>", 1)
+            if len(after_link) > 1:
+                desc = re.sub(r'<[^>]+>', '', after_link[1]).strip()
+                desc = re.sub(r'\s+', ' ', desc).strip()
+
+            links: Dict[str, str] = {}
+            if is_academic_url(url):
+                links["paper"] = url
+            elif "github.com" in url:
+                links["code"] = url
+            else:
+                links["link"] = url
+
+            paper_id = slugify(title[:60])
+
+            papers.append({
+                "id": paper_id,
+                "title": title,
+                "year": None,
+                "venue": "arXiv" if "arxiv.org" in url else "",
+                "category": "Others",
+                "tags": [],
+                "representations": [],
+                "input_modalities": [],
+                "output_modalities": [],
+                "links": links,
+                "preview": "/assets/placeholder.svg",
+                "sources": [{"repo": source_repo, "category": "Others"}],
+                "_description": desc[:200] if desc else "",
+            })
 
         return papers
 
@@ -379,6 +514,10 @@ def ingest_source(readme: str, repo_files: List[str],
     elif fmt == "markdown_list":
         papers = MarkdownListParser.parse(readme, source_repo)
         print(f"[ingest] 从 Markdown 列表解析到 {len(papers)} 篇论文")
+        return papers
+    elif fmt == "html_list":
+        papers = HtmlListParser.parse(readme, source_repo)
+        print(f"[ingest] 从 HTML 列表解析到 {len(papers)} 篇论文")
         return papers
     else:
         print("[ingest] 无法识别的格式，跳过")

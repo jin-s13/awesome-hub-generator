@@ -139,6 +139,29 @@ class GitHubDiscoverer:
                     candidates.append(self._item_to_source(item))
             time.sleep(0.3)
 
+        # 策略 4: 按 GitHub Trending 搜索
+        print("[discover] 策略 4: 按 GitHub Trending 搜索...")
+        for kw in keywords:
+            items = self._search_repos(f"awesome {kw} stars:>100")
+            for item in items:
+                name = item["full_name"]
+                if name not in seen:
+                    seen.add(name)
+                    candidates.append(self._item_to_source(item))
+            time.sleep(0.3)
+
+        # 策略 5: 搜索 awesome-list 话题
+        print("[discover] 策略 5: 搜索 awesome-list 话题...")
+        items = self._search_repos("topic:awesome-list")
+        for item in items:
+            name = item["full_name"]
+            # 只保留描述中包含关键词的
+            desc = (item.get("description", "") or "").lower()
+            if any(kw.lower() in desc for kw in keywords):
+                if name not in seen:
+                    seen.add(name)
+                    candidates.append(self._item_to_source(item))
+
         # 过滤：最低 star 数
         filtered = [s for s in candidates if s.stars >= min_stars]
 

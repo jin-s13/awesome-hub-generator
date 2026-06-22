@@ -268,13 +268,17 @@ def generate_env_file(
     return content
 
 
-def sync_config(awesome_config: Dict[str, Any]) -> None:
+def sync_config(awesome_config: Optional[Dict[str, Any]] = None) -> None:
     """
     One-shot sync: convert awesome.yaml and write both config.json and .env.
 
     Args:
-        awesome_config: Parsed awesome.yaml as a dict.
+        awesome_config: Parsed awesome.yaml as a dict. If None, loads via
+                        load_config_with_overrides().
     """
+    if awesome_config is None:
+        awesome_config = load_config_with_overrides()
+
     # Write config.json
     researcher_config = awesome_to_researcher_config(awesome_config)
     RESEARCHER_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -286,3 +290,54 @@ def sync_config(awesome_config: Dict[str, Any]) -> None:
 
     # Write .env
     generate_env_file(env_path=RESEARCHER_ENV_PATH)
+
+
+def deep_merge(base: dict, override: dict) -> dict:
+    """递归深度合并两个字典。override 的键值覆盖 base。
+
+    对嵌套字典递归合并，对列表直接替换。
+    """
+    result = base.copy()
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def load_config_with_overrides(config_path: str = "awesome.yaml") -> dict:
+    """加载配置文件，支持 awesome.local.yaml 本地覆盖。
+
+    加载顺序:
+    1. 先加载 awesome.yaml（基础配置）
+    2. 如果存在 awesome.local.yaml，深度合并（local 覆盖 base）
+    3. 返回合并后的配置
+
+    搜索路径: 先 CWD，再 ROOT（generator 目录）
+    """
+    import yaml
+
+    path = Path(config_path)
+    if not path.is_absolute():
+        # Try CWD first, then ROOT (generator)
+        cwd_path = Path.cwd() / config_path
+        if cwd_path.exists():
+            path = cwd_path
+        else:
+            path = PROJECT_ROOT / config_path
+
+    if not path.exists():
+        print(f"[config_bridge] 错误: 未找到 {config_path}")
+        return {}
+
+    config = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+    # Check for local override file in the same directory
+    local_path = path.with_name(f"{path.stem}.local{path.suffix}")
+    if local_path.exists():
+        local_config = yaml.safe_load(local_path.read_text(encoding="utf-8")) or {}
+        config = deep_merge(config, local_config)
+        print(f"[config_bridge] 已合并本地覆盖: {local_path}")
+
+    return config

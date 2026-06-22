@@ -222,9 +222,33 @@ def load_yaml(path: Path) -> List[Dict]:
     return []
 
 
+def write_if_changed(path: Path, data: Any) -> bool:
+    """幂等写入：如果内容不变则不写文件。
+
+    Args:
+        path: 文件路径
+        data: Python 对象（将用 YAML 序列化）
+
+    Returns:
+        True 如果文件被写入，False 如果内容未变
+    """
+    new_content = yaml.dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
+    if path.exists() and path.read_text(encoding="utf-8") == new_content:
+        return False
+    path.write_text(new_content, encoding="utf-8")
+    return True
+
+
 def save_yaml(path: Path, data: List[Dict]) -> None:
+    """Save data to YAML file with idempotent write."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False, width=120), encoding="utf-8")
+    if not write_if_changed(path, data):
+        try:
+            rel = path.relative_to(ROOT)
+        except ValueError:
+            rel = path
+        print(f"[sync] 未变更 {rel} ({len(data)} 条)")
+        return
     try:
         rel = path.relative_to(ROOT)
     except ValueError:
@@ -279,9 +303,41 @@ def paper_to_yaml(paper: Dict, classification: Dict, source_repo: str = "arxiv")
 
 
 def _filter_negative_keywords(papers: List[Dict], negative_keywords: List[str]) -> List[Dict]:
-    """过滤掉标题或摘要命中负向关键词的论文。"""
+    """过滤掉命中负向关键词的论文。
+
+    优先使用 LLM 语义理解（避免关键词误杀），
+    LLM 不可用时 fallback 到关键词匹配。
+    """
     if not negative_keywords:
         return papers
+
+    # Try LLM-based filtering first
+    api_key = os.environ.get("ARK_API_KEY", "")
+    if api_key:
+        try:
+            from relevance_filter import _llm_filter_negative
+            result = []
+            for p in papers:
+                title = p.get("title", "")
+                abstract = p.get("abstract", "")
+                if title and abstract:
+                    llm_result = _llm_filter_negative(title, abstract, negative_keywords)
+                    if llm_result is True:
+                        continue  # excluded by LLM
+                    if llm_result is False:
+                        result.append(p)  # confirmed not excluded
+                        continue
+                    # llm_result is None → fallback to keyword matching
+                # Fallback: keyword matching
+                text = (title + " " + abstract).lower()
+                nk_lower = [k.lower() for k in negative_keywords]
+                if not any(nk in text for nk in nk_lower):
+                    result.append(p)
+            return result
+        except ImportError:
+            pass
+
+    # Fallback: keyword matching
     nk_lower = [k.lower() for k in negative_keywords]
     result = []
     for p in papers:

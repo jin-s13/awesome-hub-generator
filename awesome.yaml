@@ -94,11 +94,24 @@ research:
   # === 每日搜索的天数范围 ===
   daily_search_days: 3
 
+  # === 数据源开关 ===
+  sources:
+    arxiv: true
+    huggingface_daily: true
+    huggingface_trending: true
+
+  # === 自动发现 GitHub 已有 awesome 项目 ===
+  auto_discover:
+    enabled: true
+    min_stars: 5
+    max_sources: 10
+
   # === 评分配置 ===
   scoring:
     base_score: 1.5            # 基础分
     weight_coefficient: 2.5    # 权重系数
     max_score_per_keyword: 10  # 每个关键词最高分
+    filter_min_score: 5.0      # 低于此分数的论文被过滤
     author_bonus:              # 专家作者加分
       enabled: false
       bonus_points: 5.0
@@ -110,6 +123,36 @@ research:
     min_score: 30               # 最低评分门槛
     pdf_parser: "mineru"       # pymupdf（本地）或 mineru（云端）
     max_papers_per_run: 10      # 每次运行最多分析多少篇
+
+  # === 元数据富化配置 ===
+  enrichment:
+    enabled: true
+    max_concurrent: 10           # 并发数
+    request_timeout: 30          # 单篇超时（秒）
+    extract_affiliations: true   # 是否提取机构
+    extract_figures: true        # 是否提取图片
+    extract_methods: true        # 是否提取方法名
+
+  # === 论文分级配置 ===
+  grading:
+    enabled: true
+    must_read_min_score: 40      # 必读门槛
+    worth_reading_min_score: 20  # 值得看门槛
+    # 低于 worth_reading_min_score 的为"可跳过"
+
+  # === 跨天去重历史记录 ===
+  history:
+    enabled: true
+    retention_days: 30           # 保留天数
+    min_papers_per_run: 20       # 最少论文数（不足时回填）
+    weekend_mode: true           # 周末模式
+
+  # === 图片本地化 ===
+  image_localization:
+    enabled: true
+    check_reachability: true     # 检查图片可达性
+    download_fallback: true      # 不可达时下载到本地
+    pdf_extract_fallback: true   # 从 PDF 提取作为最终 fallback
 
   # === 关键词趋势追踪 ===
   keyword_tracking:

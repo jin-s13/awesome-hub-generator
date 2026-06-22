@@ -14,12 +14,12 @@ class TestLoadConfig:
     def test_loads_yaml(self, tmp_path):
         config = tmp_path / "awesome.yaml"
         config.write_text("project:\n  name: Test\n", encoding="utf-8")
-        with patch("scripts.build.ROOT", tmp_path):
+        with patch("scripts.build.SITE_DIR", tmp_path), patch("scripts.build.ROOT", tmp_path):
             result = load_config()
         assert result["project"]["name"] == "Test"
 
     def test_exits_on_missing(self, tmp_path):
-        with patch("scripts.build.ROOT", tmp_path):
+        with patch("scripts.build.SITE_DIR", tmp_path), patch("scripts.build.ROOT", tmp_path):
             with pytest.raises(SystemExit):
                 load_config()
 

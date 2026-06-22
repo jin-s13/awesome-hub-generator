@@ -26,18 +26,20 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 logger = logging.getLogger("generate_interpretations")
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = Path(os.environ.get("HUB_DATA_DIR", str(ROOT / ".local/data")))
+SITE_DIR = Path.cwd()
+DATA_DIR = Path(os.environ.get("HUB_DATA_DIR", str(SITE_DIR / ".local/data")))
 
-# Load .env file if present
-_env_path = ROOT / ".env"
-if _env_path.exists():
-    with open(_env_path) as _f:
-        for _line in _f:
-            _line = _line.strip()
-            if _line and not _line.startswith("#") and "=" in _line:
-                _key, _val = _line.split("=", 1)
-                _val = _val.strip("\"'")
-                os.environ.setdefault(_key.strip(), _val)
+# Load .env file: check CWD first, then ROOT
+for _env_path in [SITE_DIR / ".env", ROOT / ".env"]:
+    if _env_path.exists():
+        with open(_env_path) as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if _line and not _line.startswith("#") and "=" in _line:
+                    _key, _val = _line.split("=", 1)
+                    _val = _val.strip("\"'")
+                    os.environ.setdefault(_key.strip(), _val)
+        break
 
 # LLM config
 API_KEY = os.environ.get("ARK_API_KEY", "")
@@ -115,6 +117,7 @@ def generate_tldr_and_reasoning(title: str, abstract: str, keywords: List[str]) 
 {{
   "tldr": "One-sentence summary of the paper (max 30 words)",
   "reasoning": "Brief explanation of the paper's strengths and weaknesses (2-3 sentences)",
+  "has_real_world": true or false,
   "keyword_scores": {{
     "keyword1": score1,
     "keyword2": score2
@@ -122,6 +125,7 @@ def generate_tldr_and_reasoning(title: str, abstract: str, keywords: List[str]) 
 }}
 
 Score each keyword 0-10 based on relevance to the paper.
+"has_real_world" should be true if the paper includes real-world experiments, benchmarks, datasets, or empirical evaluations.
 Keywords to score: {kw_list}
 
 Title: {title}
@@ -138,9 +142,10 @@ Return ONLY valid JSON, no other text."""
         return {
             "tldr": result.get("tldr", ""),
             "reasoning": result.get("reasoning", ""),
+            "has_real_world": result.get("has_real_world", False),
             "keyword_scores": result.get("keyword_scores", {}),
         }
-    return {"tldr": "", "reasoning": "", "keyword_scores": {}}
+    return {"tldr": "", "reasoning": "", "has_real_world": False, "keyword_scores": {}}
 
 
 def generate_deep_analysis(title: str, abstract: str) -> Dict:
@@ -305,6 +310,47 @@ Return ONLY valid JSON, no other text:
     return {}
 
 
+def grade_papers(papers: List[Dict], config: dict) -> List[Dict]:
+    """根据评分和配置对论文进行分级。
+
+    分级规则:
+      - "must_read" (必读): score.total >= grading.must_read_min_score (默认 40)
+      - "worth_reading" (值得看): score.total >= grading.worth_reading_min_score (默认 20)
+      - "skip" (可跳过): 低于 worth_reading_min_score
+
+    在每篇论文中写入 paper["grade"] 字段。
+    如果 grading.enabled=false，跳过不处理。
+    """
+    grading_config = config.get("research", {}).get("grading", {})
+    if not grading_config.get("enabled", True):
+        logger.info("论文分级已禁用，跳过")
+        return papers
+
+    must_read_min = grading_config.get("must_read_min_score", 40)
+    worth_reading_min = grading_config.get("worth_reading_min_score", 20)
+
+    counts = {"must_read": 0, "worth_reading": 0, "skip": 0}
+
+    for paper in papers:
+        total_score = paper.get("score", {}).get("total", 0)
+        if total_score >= must_read_min:
+            paper["grade"] = "must_read"
+            counts["must_read"] += 1
+        elif total_score >= worth_reading_min:
+            paper["grade"] = "worth_reading"
+            counts["worth_reading"] += 1
+        else:
+            paper["grade"] = "skip"
+            counts["skip"] += 1
+
+    logger.info(
+        f"分级完成: {counts['must_read']} 篇必读, "
+        f"{counts['worth_reading']} 篇值得看, "
+        f"{counts['skip']} 篇可跳过"
+    )
+    return papers
+
+
 def needs_interpretation(paper: Dict) -> bool:
     """Check if a paper needs interpretation."""
     return not paper.get("tldr") or not paper.get("reasoning")
@@ -395,6 +441,55 @@ def _fill_missing_abstracts(papers: List[Dict], papers_path: Path) -> int:
     return filled
 
 
+def backfill_interpretation_links(papers_path: Path) -> int:
+    """将论文解读链接回填到 papers.yaml 中。
+
+    对于每篇论文，如果存在对应的解读文件（resource/{paper_id}/README.md），
+    在 paper["links"]["interpretation"] 中设置链接。
+
+    Returns:
+        回填的论文数量
+    """
+    papers = yaml.safe_load(papers_path.read_text(encoding="utf-8"))
+    if not isinstance(papers, list):
+        logger.error("Invalid papers.yaml format for backfill")
+        return 0
+
+    resource_dir = DATA_DIR.parent / "resource"
+    backfilled = 0
+
+    for paper in papers:
+        paper_id = paper.get("id", "")
+        if not paper_id:
+            continue
+
+        readme_path = resource_dir / paper_id / "README.md"
+        if not readme_path.exists():
+            continue
+
+        # 确保 links 字典存在
+        if "links" not in paper:
+            paper["links"] = {}
+
+        expected_link = f"/resource/{paper_id}/"
+        current_link = paper["links"].get("interpretation", "")
+
+        if current_link == expected_link:
+            continue  # 已指向正确链接，跳过
+
+        paper["links"]["interpretation"] = expected_link
+        backfilled += 1
+
+    if backfilled > 0:
+        papers_path.write_text(
+            yaml.dump(papers, allow_unicode=True, sort_keys=False, default_flow_style=False),
+            encoding="utf-8",
+        )
+
+    logger.info(f"回填了 {backfilled} 篇论文的解读链接")
+    return backfilled
+
+
 def main():
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
@@ -409,7 +504,10 @@ def main():
         return
 
     # Get keywords from config
-    config_path = ROOT / "awesome.yaml"
+    config_path = SITE_DIR / "awesome.yaml"
+    if not config_path.exists():
+        config_path = ROOT / "awesome.yaml"
+    config = {}
     keywords = []
     if config_path.exists():
         config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
@@ -444,6 +542,8 @@ def main():
                     paper["tldr"] = result["tldr"]
                 if result.get("reasoning"):
                     paper["reasoning"] = result["reasoning"]
+                if "has_real_world" in result:
+                    paper["has_real_world"] = result["has_real_world"]
                 if result.get("keyword_scores"):
                     if "score" not in paper:
                         paper["score"] = {}
@@ -484,6 +584,17 @@ def main():
             logger.info(f"Updated {updated} papers with interpretations")
 
         logger.info(f"Done: {updated} papers interpreted")
+
+    # =====================================================================
+    # Step 2.5: Grade papers
+    # =====================================================================
+    papers = yaml.safe_load(papers_path.read_text(encoding="utf-8"))
+    if isinstance(papers, list):
+        grade_papers(papers, config)
+        papers_path.write_text(
+            yaml.dump(papers, allow_unicode=True, sort_keys=False, default_flow_style=False),
+            encoding="utf-8",
+        )
 
     # =====================================================================
     # Step 3: Generate Chinese translations for papers missing Chinese fields
@@ -558,6 +669,11 @@ def main():
             logger.info(f"Updated {cn_updated} papers with Chinese translations")
 
         logger.info(f"Done: {cn_updated} papers with Chinese translations")
+
+    # =====================================================================
+    # Step 4: Backfill interpretation links
+    # =====================================================================
+    backfill_interpretation_links(papers_path)
 
 
 if __name__ == "__main__":

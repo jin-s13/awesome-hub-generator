@@ -20,6 +20,8 @@ import time
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 import requests
 import yaml
@@ -28,22 +30,27 @@ import yaml
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Load .env file if present
-_env_path = Path(__file__).resolve().parents[1] / ".env"
-if _env_path.exists():
-    with open(_env_path) as _f:
-        for _line in _f:
-            _line = _line.strip()
-            if _line and not _line.startswith("#") and "=" in _line:
-                _key, _val = _line.split("=", 1)
-                _val = _val.strip("\"'")
-                os.environ.setdefault(_key.strip(), _val)
+# ROOT = generator root (for templates, scripts)
+ROOT = Path(__file__).resolve().parents[1]
+# SITE_DIR = current working directory (downstream repo root, or generator for dev)
+SITE_DIR = Path.cwd()
+
+# Load .env file: check CWD first, then ROOT
+for _env_path in [SITE_DIR / ".env", ROOT / ".env"]:
+    if _env_path.exists():
+        with open(_env_path) as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if _line and not _line.startswith("#") and "=" in _line:
+                    _key, _val = _line.split("=", 1)
+                    _val = _val.strip("\"'")
+                    os.environ.setdefault(_key.strip(), _val)
+        break
 
 logger = logging.getLogger("fetch_teasers")
 
-ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = Path(os.environ.get("HUB_DATA_DIR", str(ROOT / ".local/data")))
-ASSETS_DIR = Path(os.environ.get("HUB_ASSETS_DIR", str(ROOT / "templates" / "astro-site" / "public" / "assets" / "papers")))
+DATA_DIR = Path(os.environ.get("HUB_DATA_DIR", str(SITE_DIR / ".local/data")))
+ASSETS_DIR = Path(os.environ.get("HUB_ASSETS_DIR", str(SITE_DIR / ".local/assets/papers")))
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; awesome-hub-generator/1.0)",
@@ -422,6 +429,73 @@ def download_image(url: str, dest_path: Path) -> bool:
     return True
 
 
+def check_image_reachability(url: str, timeout: int = 10) -> bool:
+    """检查图片 URL 是否可达。用 HTTP HEAD 请求验证。"""
+    try:
+        req = Request(url, method="HEAD")
+        req.add_header("User-Agent", "awesome-hub-generator/1.0")
+        resp = urlopen(req, timeout=timeout)
+        status = resp.getcode()
+        return status is not None and 200 <= status < 400
+    except (URLError, OSError, ValueError):
+        return False
+
+
+def localize_image(paper: Dict, assets_dir: Path, timeout: int = 30) -> bool:
+    """将论文的 preview URL 图片下载到本地 assets 目录。
+
+    1. 检查 preview 是否已经是本地路径（以 /assets/ 开头）
+    2. 如果是远程 URL，检查可达性
+    3. 下载到 assets_dir / paper_id / "teaser.png"
+    4. 更新 paper["preview"] 为本地路径
+    """
+    preview = paper.get("preview", "")
+    if not preview:
+        return False
+
+    # 已经是本地路径，无需处理
+    if preview.startswith("/assets/"):
+        return False
+
+    # 只处理远程 URL
+    if not (preview.startswith("http://") or preview.startswith("https://")):
+        return False
+
+    paper_id = paper.get("id", "")
+    if not paper_id:
+        return False
+
+    dest_path = assets_dir / paper_id / "teaser.png"
+    if dest_path.exists():
+        paper["preview"] = f"/assets/papers/{paper_id}/teaser.png"
+        return True
+
+    logger.info(f"  Localizing image for {paper_id}...")
+    if download_image(preview, dest_path):
+        paper["preview"] = f"/assets/papers/{paper_id}/teaser.png"
+        logger.info(f"    Localized: {preview[:80]} -> {dest_path}")
+        return True
+
+    logger.debug(f"    Failed to localize image for {paper_id}")
+    return False
+
+
+def _load_image_localization_config() -> Dict[str, Any]:
+    """从 awesome.yaml 读取 image_localization 配置。"""
+    for config_path in [SITE_DIR / "awesome.yaml", ROOT / "awesome.yaml"]:
+        if config_path.exists():
+            try:
+                config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+                if config and isinstance(config, dict):
+                    il_config = config.get("research", {}).get("image_localization", {})
+                    if isinstance(il_config, dict):
+                        return il_config
+            except Exception:
+                pass
+            break
+    return {}
+
+
 def fetch_teaser_for_paper(paper: Dict[str, Any]) -> Optional[str]:
     """
     Fetch teaser image for a single paper using multi-source fallback.
@@ -544,6 +618,62 @@ def main():
             )
             logger.info(f"  [checkpoint] saved {success_count} new teasers so far")
             since_save = 0
+
+    # === 图片本地化步骤 ===
+    il_config = _load_image_localization_config()
+    if il_config.get("enabled", True):
+        logger.info("Image localization enabled, processing...")
+        check_reachability = il_config.get("check_reachability", True)
+        download_fallback = il_config.get("download_fallback", True)
+        localize_count = 0
+
+        for paper in papers:
+            preview = paper.get("preview", "")
+            if not preview:
+                continue
+            # 跳过 placeholder
+            if "/assets/placeholder.svg" in preview:
+                continue
+            # 已经是本地路径
+            if preview.startswith("/assets/"):
+                continue
+            # 只处理远程 URL
+            if not (preview.startswith("http://") or preview.startswith("https://")):
+                continue
+
+            paper_id = paper.get("id", "")
+
+            # 可达性检查
+            if check_reachability:
+                if not check_image_reachability(preview):
+                    logger.debug(f"    Image unreachable for {paper_id}: {preview[:80]}")
+                    if not download_fallback:
+                        continue
+                    # download_fallback=true 时，尝试下载
+                else:
+                    # 可达但 download_fallback 未开启，跳过
+                    if not download_fallback:
+                        continue
+
+            # 下载到本地
+            if localize_image(paper, ASSETS_DIR):
+                localize_count += 1
+                since_save += 1
+
+            if since_save >= save_interval:
+                papers_path.write_text(
+                    yaml.dump(papers, allow_unicode=True, sort_keys=False, default_flow_style=False),
+                    encoding="utf-8",
+                )
+                logger.info(f"  [checkpoint] saved {localize_count} localized images so far")
+                since_save = 0
+
+        if localize_count > 0:
+            papers_path.write_text(
+                yaml.dump(papers, allow_unicode=True, sort_keys=False, default_flow_style=False),
+                encoding="utf-8",
+            )
+            logger.info(f"Localized {localize_count} images")
 
     if success_count > 0:
         papers_path.write_text(

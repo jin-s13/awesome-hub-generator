@@ -1,0 +1,126 @@
+# 每日增量更新（含 teaser 抓取）
+# 此文件应放在下游 awesome-*-hub 仓库的 .github/workflows/ 目录下
+# 使用前需要配置以下 GitHub Secrets:
+#   - ARK_API_KEY: LLM API key (用于论文评分和分析)
+#   - MINERU_API_KEY: MinerU API key (可选，用于 PDF 图表提取)
+
+name: Daily Update
+
+on:
+  schedule:
+    # 每天北京时间 8:00 (UTC 0:00)
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      search_days:
+        description: '搜索最近 N 天（gap-fill 模式，留空则用配置默认值）'
+        required: false
+        default: ''
+        type: string
+      skip_build:
+        description: '跳过网站构建'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: daily-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout site repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout generator (as submodule or sibling)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.GENERATOR_REPO || 'your-org/awesome-hub-generator' }}
+          ref: main
+          path: awesome-hub-generator
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('awesome-hub-generator/requirements.txt') }}
+
+      - name: Install dependencies
+        run: |
+          pip install -r awesome-hub-generator/requirements.txt
+          # 安装 poppler-utils (用于 teaser 图提取)
+          sudo apt-get update && sudo apt-get install -y poppler-utils
+
+      - name: Restore data cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .local/data
+            .local/assets
+          key: site-data-${{ github.run_id }}
+          restore-keys: |
+            site-data-
+
+      - name: Run daily update
+        env:
+          ARK_API_KEY: ${{ secrets.ARK_API_KEY }}
+          ARK_API_BASE_URL: ${{ secrets.ARK_API_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3' }}
+          ARK_MODEL_NAME: ${{ secrets.ARK_MODEL_NAME || 'deepseek-v4-flash-260425' }}
+          SMART_MODEL_NAME: ${{ secrets.SMART_MODEL_NAME || secrets.ARK_MODEL_NAME || 'deepseek-v4-flash-260425' }}
+          MINERU_API_KEY: ${{ secrets.MINERU_API_KEY }}
+        run: |
+          cd ${{ github.workspace }}
+          SEARCH_DAYS_ARGS=""
+          if [ -n "${{ github.event.inputs.search_days }}" ]; then
+            SEARCH_DAYS_ARGS="--search-days ${{ github.event.inputs.search_days }}"
+          fi
+          SKIP_BUILD_ARGS=""
+          if [ "${{ github.event.inputs.skip_build }}" = "true" ]; then
+            SKIP_BUILD_ARGS="--skip-build"
+          fi
+          python awesome-hub-generator/scripts/update.py $SEARCH_DAYS_ARGS $SKIP_BUILD_ARGS
+
+      - name: Build site
+        if: github.event.inputs.skip_build != 'true'
+        run: |
+          cd ${{ github.workspace }}/.local/website
+          npm install
+          npm run build
+
+      - name: Deploy to GitHub Pages
+        if: github.event.inputs.skip_build != 'true'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./.local/website/dist
+
+      - name: Commit data changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .local/data/ .local/assets/ || true
+          if git diff --staged --quiet; then
+            echo "No data changes to commit"
+          else
+            git commit -m "chore: daily update $(date -u +%Y-%m-%d)"
+            git push
+          fi

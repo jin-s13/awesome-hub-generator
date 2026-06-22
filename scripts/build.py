@@ -21,23 +21,48 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT))
 
-# Load .env file if present (so config_bridge/researcher can read ARK_API_KEY etc.)
-_env_path = ROOT / ".env"
-if _env_path.exists():
-    with open(_env_path) as _f:
-        for _line in _f:
-            _line = _line.strip()
-            if _line and not _line.startswith("#") and "=" in _line:
-                _k, _v = _line.split("=", 1)
-                os.environ.setdefault(_k.strip(), _v.strip().strip("\"'"))
+from config_bridge import deep_merge
+
+# CWD is the site root (downstream repo root, or generator root for dev).
+# User data (awesome.yaml, .env, data/, output/) resolves against CWD.
+# Generator resources (templates/, arxiv-daily-researcher/) resolve against ROOT.
+SITE_DIR = Path.cwd()
+
+# Load .env file: check CWD first, then ROOT
+for _env_path in [SITE_DIR / ".env", ROOT / ".env"]:
+    if _env_path.exists():
+        with open(_env_path) as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if _line and not _line.startswith("#") and "=" in _line:
+                    _k, _v = _line.split("=", 1)
+                    os.environ.setdefault(_k.strip(), _v.strip().strip("\"'"))
+        break
 
 def load_config(config_path: str = "awesome.yaml") -> dict:
     import yaml
-    path = ROOT / config_path if not os.path.isabs(config_path) else Path(config_path)
+    path = Path(config_path)
+    if not path.is_absolute():
+        # Try CWD first, then ROOT (generator)
+        cwd_path = SITE_DIR / config_path
+        if cwd_path.exists():
+            path = cwd_path
+        else:
+            path = ROOT / config_path
     if not path.exists():
         print(f"[build] 错误: 未找到 {config_path}")
         sys.exit(1)
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+    config = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+    # Check for local override file in the same directory
+    local_path = path.with_name(f"{path.stem}.local{path.suffix}")
+    if local_path.exists():
+        local_config = yaml.safe_load(local_path.read_text(encoding="utf-8")) or {}
+        config = deep_merge(config, local_config)
+        print(f"[build] 已合并本地覆盖: {local_path}")
+
+    return config
 
 
 def render_template(src: Path, dst: Path, variables: dict) -> None:
@@ -149,8 +174,9 @@ def filter_irrelevant_papers(data_dir: Path, config: dict) -> None:
     research = config.get("research", {})
     negative = research.get("negative_keywords", [])
     min_score = research.get("scoring", {}).get("filter_min_score", 5.0)
+    research_context = config.get("project", {}).get("name", "")
 
-    relevant, removed = filter_papers(papers, negative, min_score)
+    relevant, removed = filter_papers(papers, negative, min_score, research_context)
 
     if removed:
         papers_path.write_text(
@@ -367,7 +393,7 @@ def generate_readme_with_table(config: dict, output_dir: Path, data_dir: Path = 
     import yaml
 
     if data_dir is None:
-        data_dir = ROOT / ".local/data"
+        data_dir = SITE_DIR / ".local/data"
     papers_path = data_dir / "papers.yaml"
     papers = []
     if papers_path.exists():
@@ -409,7 +435,7 @@ def generate_readme_with_table(config: dict, output_dir: Path, data_dir: Path = 
             paper_cell = title
 
         # 解读 column: link to interpretation file if exists
-        interp_path = ROOT / "resource" / paper_id / "README.md"
+        interp_path = Path("resource") / paper_id / "README.md"
         if interp_path.exists():
             interp_cell = f"[解读](./resource/{paper_id}/README.md)"
         else:
@@ -443,8 +469,8 @@ def main():
 
     config = load_config(args.config)
     research = config.get("research", {})
-    output_dir = (ROOT / args.output).resolve()
-    data_dir = (ROOT / args.data_dir).resolve()
+    output_dir = Path(args.output).resolve()
+    data_dir = Path(args.data_dir).resolve()
 
     # 测试隔离时通过环境变量传递 data_dir 给子脚本
     import os
@@ -505,14 +531,34 @@ def main():
             else:
                 print("[build] No papers found from arXiv API")
         else:
-            # Researcher path: merge with dedup
+            # Researcher path: merge with dedup (skip existing papers)
             from scripts.researcher_adapter import ResearcherAdapter
             from sync import load_yaml, save_yaml
 
             existing = load_yaml(papers_yaml)
+            before_count = len(new_papers)
             merged, added = ResearcherAdapter.deduplicate(existing, new_papers)
             save_yaml(papers_yaml, merged)
-            print(f"[build] Added {added} new papers (total: {len(merged)})")
+            skipped = before_count - added
+            print(f"[build] Added {added} new papers, skipped {skipped} duplicates (total: {len(merged)})")
+
+    # Step 2.1: HuggingFace 数据源（如果启用）
+    sources_config = research.get("sources", {})
+    if sources_config.get("huggingface_daily", False) or sources_config.get("huggingface_trending", False):
+        try:
+            from scripts.hf_source import fetch_all_hf_papers
+            from scripts.researcher_adapter import ResearcherAdapter
+            from sync import load_yaml, save_yaml
+
+            print("[build] 抓取 HuggingFace 数据源...")
+            hf_papers = fetch_all_hf_papers(config)
+            if hf_papers:
+                existing = load_yaml(papers_yaml)
+                merged, added = ResearcherAdapter.deduplicate(existing, hf_papers)
+                save_yaml(papers_yaml, merged)
+                print(f"[build] HF 数据源: 新增 {added} 篇论文")
+        except Exception as e:
+            print(f"[build] HF 数据源抓取失败（非致命）: {e}")
 
     # teaser 图默认写入模板 public/assets；测试隔离时写到 data_dir 同级
     os.environ.setdefault("HUB_ASSETS_DIR", str(data_dir.parent / "assets" / "papers"))
@@ -531,6 +577,22 @@ def main():
             fetch_teasers()
         except Exception as e:
             print(f"[build] Teaser 获取失败（非致命）: {e}")
+
+    # Step 3.1: 元数据富化（arXiv HTML 提取）
+    enrichment_config = research.get("enrichment", {})
+    if enrichment_config.get("enabled", True):
+        try:
+            from scripts.enrich_metadata import enrich_papers
+            from sync import load_yaml, save_yaml
+
+            print("[build] 元数据富化...")
+            papers = load_yaml(papers_yaml)
+            if papers:
+                papers = enrich_papers(papers, config)
+                save_yaml(papers_yaml, papers)
+                print(f"[build] 元数据富化完成 ({len(papers)} 篇)")
+        except Exception as e:
+            print(f"[build] 元数据富化失败（非致命）: {e}")
 
     # Step 4: 生成论文解读（TLDR/reasoning/analysis）
     if not args.skip_interpretations:
@@ -559,14 +621,18 @@ def main():
         print(f"[build] 已复制 teaser 图到 {assets_dst}")
 
     # Step 6: 复制 resource 到网站目录（供 Astro 访问解读文件）
-    resource_src = ROOT / "resource"
+    resource_src = SITE_DIR / "resource"
     resource_dst = output_dir / "resource"
     if resource_src.exists():
         shutil.copytree(resource_src, resource_dst, dirs_exist_ok=True)
         print(f"[build] 已复制资源到 {resource_dst}")
 
     # Step 7: 复制 awesome.yaml 到输出目录
-    shutil.copy2(ROOT / "awesome.yaml", output_dir / "awesome.yaml")
+    _config_path = Path(args.config)
+    if not _config_path.is_absolute():
+        _config_path = SITE_DIR / args.config
+    if _config_path.exists():
+        shutil.copy2(_config_path, output_dir / "awesome.yaml")
 
     # Step 8: 生成 README（含论文表格和「解读」列）
     generate_readme_with_table(config, output_dir, data_dir)

@@ -12,3 +12,4 @@ arxiv-daily-researcher/data/
 arxiv-daily-researcher/.env
 tmp/
 .venv/
+awesome.local.yaml

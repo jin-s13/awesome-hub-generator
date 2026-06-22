@@ -18,7 +18,7 @@ class TestLoadConfig:
     def test_loads_yaml(self, tmp_path):
         config = tmp_path / "awesome.yaml"
         config.write_text("project:\n  name: Test\nresearch:\n  keywords: [test]\n", encoding="utf-8")
-        with patch("scripts.update.ROOT", tmp_path):
+        with patch("scripts.update.SITE_DIR", tmp_path), patch("scripts.update.ROOT", tmp_path):
             result = load_config()
         assert result["project"]["name"] == "Test"
         assert result["research"]["keywords"] == ["test"]

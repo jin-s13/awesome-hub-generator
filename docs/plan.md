@@ -15,22 +15,34 @@
 ### 两个项目的关系
 
 ```
-awesome-hub-generator/          ← 通用生成器工具（本仓库）
-├── awesome.yaml                ← 配置文件（用户修改）
+awesome-hub-generator/          ← 通用生成器工具（本仓库，不含 GHA）
 ├── arxiv-daily-researcher/     ← git submodule: 论文发现引擎
-├── scripts/                    ← 构建脚本
-├── templates/astro-site/       ← Astro 网站模板
-└── .github/workflows/          ← CI/CD 工作流
+├── scripts/                    ← 构建脚本（build.py, update.py, init_site.py）
+├── templates/
+│   ├── astro-site/             ← Astro 网站模板
+│   └── workflows/
+│       └── daily-update.yml    ← 下游仓库 GHA 模板（含 teaser fetch）
+└── awesome.yaml                ← 示例配置（供 init_site.py 复制）
 
-        ↓ 运行后产出 ↓
+        ↓ init_site.py 创建 ↓
 
-awesome-cad-hub/                ← 具体 awesome 站点（产物仓库）
+awesome-cad-hub/                ← 具体 awesome 站点（独立仓库）
 ├── awesome.yaml                ← CAD 方向的配置
-├── data/papers.yaml            ← 自动生成的论文数据（含评分/深度分析）
-├── src/                        ← Astro 网站源码（从模板生成）
-├── .github/workflows/          ← 自动部署工作流
+├── .github/workflows/
+│   └── daily-update.yml        ← 每日更新工作流（从模板复制）
+├── .local/                     ← 产出物（gitignore）
+│   ├── data/papers.yaml        ← 自动生成的论文数据
+│   ├── assets/                 ← teaser 图片
+│   └── website/                ← 生成的 Astro 网站
 └── README.md
 ```
+
+**设计原则**：
+- Generator 是纯工具，不配置 GitHub Actions
+- 下游仓库各自独立运行和部署
+- 全量构建在下游仓库创建时手动执行（`python ../scripts/build.py`）
+- 每日增量更新由下游仓库的 GHA 自动运行
+- Gap-fill 查漏补缺通过 `--search-days N` 手动触发
 
 ---
 
@@ -93,12 +105,12 @@ awesome-cad-hub/                ← 具体 awesome 站点（产物仓库）
 | GitHub 发现 | `scripts/discover_sources.py` | 自动搜索 GitHub 已有 awesome 项目并吸纳数据 |
 | arXiv 搜索 | `scripts/sync.py` | **降级为 fallback**：仅当 researcher 不可用时使用 |
 | 适配层 | `scripts/researcher_adapter.py` | **核心新增**：封装 researcher 调用 + 结果转换 |
-| 全量构建 | `scripts/build.py` | 从零构建完整网站（集成 researcher） |
-| 每日更新 | `scripts/update.py` | 增量更新论文并重新构建（集成 researcher） |
+| 全量构建 | `scripts/build.py` | 从零构建完整网站（集成 researcher，跳过已有论文） |
+| 每日更新 | `scripts/update.py` | 增量更新论文并重新构建（支持 `--search-days` gap-fill） |
+| 站点初始化 | `scripts/init_site.py` | 创建下游站点目录（含 awesome.yaml + GHA 模板） |
 | 网站模板 | `templates/astro-site/` | Astro 静态网站模板（含 `{{占位符}}`） |
+| GHA 模板 | `templates/workflows/daily-update.yml` | 下游仓库每日更新工作流模板（含 teaser fetch） |
 | 论文引擎 | `arxiv-daily-researcher/` | git submodule，论文发现与深度分析 |
-| 全量构建工作流 | `.github/workflows/full-build.yml` | 手动触发全量构建 |
-| 每日更新工作流 | `.github/workflows/daily-update.yml` | 定时触发增量更新 |
 
 ---
 
