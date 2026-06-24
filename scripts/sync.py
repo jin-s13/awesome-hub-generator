@@ -75,14 +75,52 @@ def llm_chat(messages: List[Dict], model: str = "") -> str:
         return ""
 
 
-def classify_paper(title: str, abstract: str, categories: List[str]) -> Dict:
-    """调用 LLM 对论文进行分类，返回 category, tags, representations, modalities"""
+def classify_paper(title: str, abstract: str, categories: List[str],
+                   research_context: str = "",
+                   taxonomy: Optional[Dict] = None,
+                   relevance_criteria: Optional[Dict] = None) -> Dict:
+    """调用 LLM 对论文进行分类，返回 paper_type, tags, relevant 等字段。
+
+    Args:
+        research_context: 研究方向描述，用于判断相关性。为空时不过滤。
+        taxonomy: 分类体系配置，含 paper_types 列表和 dimensions 列表。
+        relevance_criteria: 相关性标准，含 include 和 exclude 列表。
+    """
+    tax = taxonomy or {}
+    paper_types = tax.get("paper_types", [])
+    if paper_types:
+        pt_lines = "\n".join(f'  - "{pt["label"]}": {pt["description"]}' for pt in paper_types)
+        pt_labels = ", ".join(f'"{pt["label"]}"' for pt in paper_types)
+        pt_section = f"""- "paper_type": list of one or more labels from [{pt_labels}]
+  Select ALL that apply:
+{pt_lines}"""
+    else:
+        pt_section = '- "paper_type": ["method"]'
+
+    dimensions = tax.get("dimensions", [])
+    dim_lines = []
+    for dim in dimensions:
+        name = dim.get("name", "tags")
+        desc = dim.get("description", "relevant attributes")
+        dim_lines.append(f'- "{name}": list of {desc}')
+
+    # 相关性判断指令
+    relevance_instruction = ""
+    if research_context and relevance_criteria:
+        include_items = "\n".join(f"  - {item}" for item in relevance_criteria.get("include", []))
+        exclude_items = "\n".join(f"  - {item}" for item in relevance_criteria.get("exclude", []))
+        relevance_instruction = f"""
+- "relevant": true or false — Is this paper directly relevant to "{research_context}"?
+  A paper is RELEVANT if its core contribution matches any of:
+{include_items}
+  A paper is NOT RELEVANT if it is primarily about:
+{exclude_items}"""
+
+    dim_section = "\n".join(dim_lines) if dim_lines else '- "tags": list of 3-6 relevant tags'
+
     prompt = f"""Analyze this research paper and return a JSON object with these fields:
-- "category": one of ["Generation", "Reconstruction", "Analysis", "Survey", "Abstraction", "Others"]
-- "tags": list of 3-6 relevant tags (short keywords)
-- "representations": list of data representations used (e.g., ["B-Rep", "Point Cloud", "Mesh", "CAD Program"])
-- "input_modalities": list of input types (e.g., ["Text", "Image", "Point Cloud", "Latent"])
-- "output_modalities": list of output types (e.g., ["CAD Model", "CAD Program", "B-Rep"])
+{pt_section}
+{dim_section}{relevance_instruction}
 
 Title: {title}
 Abstract: {abstract[:800]}
@@ -91,17 +129,24 @@ arXiv Categories: {', '.join(categories)}
 Return ONLY valid JSON, no other text."""
 
     raw = llm_chat([{"role": "user", "content": prompt}])
+    fallback = {"paper_type": ["method"], "tags": []}
     if not raw:
-        return {"category": "Others", "tags": [], "representations": [], "input_modalities": [], "output_modalities": []}
+        return fallback
 
-    # Extract JSON from response
     json_match = re.search(r"\{.*\}", raw, re.DOTALL)
     if json_match:
         try:
-            return json.loads(json_match.group(0))
+            result = json.loads(json_match.group(0))
+            # 确保 paper_type 是 list
+            pt = result.get("paper_type")
+            if isinstance(pt, str):
+                result["paper_type"] = [pt]
+            elif not isinstance(pt, list):
+                result["paper_type"] = ["method"]
+            return result
         except json.JSONDecodeError:
             pass
-    return {"category": "Others", "tags": [], "representations": [], "input_modalities": [], "output_modalities": []}
+    return fallback
 
 
 # ---- arXiv API ----
@@ -129,10 +174,12 @@ def search_arxiv(keywords: List[str], categories: List[str],
             else:
                 kw_parts.append(kw)
         query = "+OR+".join(f"all:{kw}" for kw in kw_parts)
+        # 始终用括号包裹关键词 OR 子句，避免 AND 优先级高于 OR 导致语义错误
+        query = f"({query})"
 
         if categories:
             cat_parts = "+OR+".join(f"cat:{c}" for c in categories)
-            query = f"({query})+AND+({cat_parts})"
+            query = f"{query}+AND+({cat_parts})"
 
         if date_from:
             date_from_clean = date_from.replace("-", "")
@@ -271,12 +318,66 @@ def infer_venue(categories: List[str]) -> str:
     return "arXiv"
 
 
+def extract_year(paper: Dict) -> int:
+    """统一提取论文年份，按优先级尝试多个来源。
+
+    1. paper["year"] — 已有年份
+    2. paper["published"] — 发布日期（arXiv 格式 "2024-01-15T..."）
+    3. paper["venue"] — 会议名含年份（如 "SIGGRAPH Asia 2025"）
+    4. paper["links"]["paper"] — arXiv URL 中的年份（如 2401.12345）
+    5. 当前年份（fallback）
+    """
+    # 1. 已有 year
+    year = paper.get("year")
+    if year and isinstance(year, int) and 1990 <= year <= 2030:
+        return year
+    if year and isinstance(year, str):
+        m = re.search(r"(20\d{2})", year)
+        if m:
+            y = int(m.group(1))
+            if 1990 <= y <= 2030:
+                return y
+
+    # 2. published 日期
+    published = paper.get("published") or paper.get("publishedAt") or ""
+    if published:
+        m = re.search(r"(20\d{2})", str(published))
+        if m:
+            y = int(m.group(1))
+            if 1990 <= y <= 2030:
+                return y
+
+    # 3. venue 含年份（如 "NeurIPS 2025", "CVPR 2021"）
+    venue = paper.get("venue") or ""
+    if venue:
+        m = re.search(r"(20\d{2})", str(venue))
+        if m:
+            y = int(m.group(1))
+            if 1990 <= y <= 2030:
+                return y
+
+    # 4. arXiv URL 中的年份（如 2401.12345 -> 2024）
+    links = paper.get("links", {})
+    if isinstance(links, dict):
+        url = links.get("paper", "") or links.get("pdf", "")
+        if url:
+            m = re.search(r"/(\d{2})(\d{2})\.\d+", url)
+            if m:
+                y = 2000 + int(m.group(1))
+                if 1990 <= y <= 2030:
+                    return y
+
+    # 5. fallback
+    return datetime.now().year
+
+
 def paper_to_yaml(paper: Dict, classification: Dict, source_repo: str = "arxiv") -> Dict:
     """将 arXiv 论文元数据转为 YAML 条目"""
-    year_match = re.search(r"(\d{4})", paper.get("published", ""))
-    year = int(year_match.group(1)) if year_match else datetime.now().year
+    year = extract_year(paper)
 
-    cat = classification.get("category", "Others")
+    paper_type = classification.get("paper_type", ["method"])
+    if isinstance(paper_type, str):
+        paper_type = [paper_type]
     tags = classification.get("tags", [])
     # Add arXiv category tags
     for c in paper.get("categories", []):
@@ -284,22 +385,28 @@ def paper_to_yaml(paper: Dict, classification: Dict, source_repo: str = "arxiv")
         if tag not in tags:
             tags.append(tag)
 
-    return {
+    entry = {
         "id": slugify(f"{paper['title'][:60]}-{year}"),
         "title": paper["title"],
         "authors": paper.get("authors", []),
         "abstract": paper.get("abstract", ""),
         "year": year,
         "venue": infer_venue(paper.get("categories", [])),
-        "category": cat,
+        "paper_type": paper_type,
         "tags": tags[:8],
-        "representations": classification.get("representations", []),
-        "input_modalities": classification.get("input_modalities", []),
-        "output_modalities": classification.get("output_modalities", []),
         "links": paper.get("links", {}),
         "preview": "/assets/placeholder.svg",
-        "sources": [{"repo": source_repo, "category": cat}],
+        "sources": [{"repo": source_repo}],
     }
+
+    # 动态添加 taxonomy dimensions（techniques, inputs, outputs 等）
+    for key, value in classification.items():
+        if key in ("paper_type", "tags", "relevant", "category"):
+            continue
+        if isinstance(value, list):
+            entry[key] = value
+
+    return entry
 
 
 def _filter_negative_keywords(papers: List[Dict], negative_keywords: List[str]) -> List[Dict]:
@@ -376,7 +483,10 @@ def deduplicate(existing: List[Dict], new_items: List[Dict]) -> Tuple[List[Dict]
 
 def sync_papers(new_papers: List[Dict], output_path: Path, source_repo: str = "arxiv",
                 skip_llm: bool = False, max_papers: Optional[int] = None,
-                negative_keywords: Optional[List[str]] = None) -> int:
+                negative_keywords: Optional[List[str]] = None,
+                research_context: str = "",
+                taxonomy: Optional[Dict] = None,
+                relevance_criteria: Optional[Dict] = None) -> int:
     """
     将新论文同步到 YAML 文件。
     Returns: 新增论文数量
@@ -395,16 +505,29 @@ def sync_papers(new_papers: List[Dict], output_path: Path, source_repo: str = "a
         if filtered:
             print(f"[sync] 负向关键词过滤: 排除 {filtered} 篇不相关论文")
 
-    # LLM 分类
+    # LLM 分类 + 相关性过滤
     classified = []
+    rejected = 0
     for i, paper in enumerate(new_papers):
         if skip_llm:
-            classification = {"category": "Others", "tags": [], "representations": [], "input_modalities": [], "output_modalities": []}
+            classification = {"category": "Others", "tags": []}
         else:
             print(f"[sync] 分类 [{i+1}/{len(new_papers)}]: {paper['title'][:60]}...")
-            classification = classify_paper(paper["title"], paper["abstract"], paper.get("categories", []))
+            classification = classify_paper(
+                paper["title"], paper["abstract"], paper.get("categories", []),
+                research_context, taxonomy, relevance_criteria,
+            )
+
+        # 相关性过滤：LLM 判定不相关的论文直接拒绝
+        if research_context and relevance_criteria and classification.get("relevant") is False:
+            rejected += 1
+            print(f"[sync]   ✗ 不相关，跳过")
+            continue
 
         classified.append(paper_to_yaml(paper, classification, source_repo))
+
+    if rejected:
+        print(f"[sync] LLM 相关性过滤: 拒绝 {rejected} 篇不相关论文")
 
     # 去重合并
     merged, added = deduplicate(existing, classified)

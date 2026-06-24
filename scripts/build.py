@@ -174,9 +174,11 @@ def filter_irrelevant_papers(data_dir: Path, config: dict) -> None:
     research = config.get("research", {})
     negative = research.get("negative_keywords", [])
     min_score = research.get("scoring", {}).get("filter_min_score", 5.0)
-    research_context = config.get("project", {}).get("name", "")
+    project = config.get("project", {})
+    research_context = f"{project.get('name', '')}: {project.get('description', '')}"
 
-    relevant, removed = filter_papers(papers, negative, min_score, research_context)
+    relevant, removed = filter_papers(papers, negative, min_score, research_context,
+                                       research.get("relevance_criteria"))
 
     if removed:
         papers_path.write_text(
@@ -188,6 +190,47 @@ def filter_irrelevant_papers(data_dir: Path, config: dict) -> None:
             print(f"[build]   - {(p.get('title') or '')[:60]}")
     else:
         print(f"[build] 无不相关论文需过滤 ({len(relevant)} 篇)")
+
+
+def apply_overrides(data_dir: Path, overrides_config: dict) -> None:
+    """应用人工 overrides：删除/添加/修改论文。"""
+    from sync import load_yaml, save_yaml
+
+    overrides_file = data_dir / overrides_config.get("file", "papers.overrides.yaml")
+    if not overrides_file.exists():
+        return
+
+    import yaml
+    overrides = yaml.safe_load(overrides_file.read_text(encoding="utf-8")) or {}
+    papers_yaml = data_dir / "papers.yaml"
+    papers = load_yaml(papers_yaml) if papers_yaml.exists() else []
+
+    # 1. 删除
+    removed_ids = set(overrides.get("removed", []))
+    if removed_ids:
+        before = len(papers)
+        papers = [p for p in papers if p.get("id") not in removed_ids]
+        print(f"[build] Overrides: removed {before - len(papers)} papers")
+
+    # 2. 添加
+    added = overrides.get("added", [])
+    if added:
+        existing_ids = {p.get("id") for p in papers}
+        for p in added:
+            if p.get("id") not in existing_ids:
+                papers.append(p)
+        print(f"[build] Overrides: added {len(added)} papers")
+
+    # 3. 修改
+    modified = overrides.get("modified", {})
+    if modified:
+        for p in papers:
+            mods = modified.get(p.get("id"))
+            if mods:
+                p.update(mods)
+        print(f"[build] Overrides: modified {len(modified)} papers")
+
+    save_yaml(papers_yaml, papers)
 
 
 def generate_site(config: dict, output_dir: Path) -> None:
@@ -454,7 +497,7 @@ def main():
     parser.add_argument("--config", default="awesome.yaml", help="配置文件路径")
     parser.add_argument("--output", default=".local/website", help="网站输出目录")
     parser.add_argument("--data-dir", default=".local/data", help="数据目录（产出物隔离，已 gitignore）")
-    parser.add_argument("--skip-search", action="store_true", help="跳过 arXiv 搜索（仅重新生成网站）")
+    parser.add_argument("--skip-search", action="store_true", help="跳过所有数据搜索（arXiv + HF，仅重新生成网站）")
     parser.add_argument("--skip-researcher", action="store_true",
                         help="跳过 arxiv-daily-researcher（使用 arXiv API fallback）")
     parser.add_argument("--skip-llm", action="store_true", help="跳过 LLM 分类")
@@ -542,32 +585,40 @@ def main():
             skipped = before_count - added
             print(f"[build] Added {added} new papers, skipped {skipped} duplicates (total: {len(merged)})")
 
-    # Step 2.1: HuggingFace 数据源（如果启用）
-    sources_config = research.get("sources", {})
-    if sources_config.get("huggingface_daily", False) or sources_config.get("huggingface_trending", False):
-        try:
-            from scripts.hf_source import fetch_all_hf_papers
-            from scripts.researcher_adapter import ResearcherAdapter
-            from sync import load_yaml, save_yaml
+    # Step 2.1: HuggingFace 数据源（如果启用且未跳过搜索）
+    if not args.skip_search:
+        sources_config = research.get("sources", {})
+        if sources_config.get("huggingface_daily", False) or sources_config.get("huggingface_trending", False):
+            try:
+                from scripts.hf_source import fetch_all_hf_papers
+                from scripts.researcher_adapter import ResearcherAdapter
+                from sync import load_yaml, save_yaml
 
-            print("[build] 抓取 HuggingFace 数据源...")
-            hf_papers = fetch_all_hf_papers(config)
-            if hf_papers:
-                existing = load_yaml(papers_yaml)
-                merged, added = ResearcherAdapter.deduplicate(existing, hf_papers)
-                save_yaml(papers_yaml, merged)
-                print(f"[build] HF 数据源: 新增 {added} 篇论文")
-        except Exception as e:
-            print(f"[build] HF 数据源抓取失败（非致命）: {e}")
+                print("[build] 抓取 HuggingFace 数据源...")
+                hf_papers = fetch_all_hf_papers(config)
+                if hf_papers:
+                    existing = load_yaml(papers_yaml)
+                    merged, added = ResearcherAdapter.deduplicate(existing, hf_papers)
+                    save_yaml(papers_yaml, merged)
+                    print(f"[build] HF 数据源: 新增 {added} 篇论文")
+            except Exception as e:
+                print(f"[build] HF 数据源抓取失败（非致命）: {e}")
 
     # teaser 图默认写入模板 public/assets；测试隔离时写到 data_dir 同级
     os.environ.setdefault("HUB_ASSETS_DIR", str(data_dir.parent / "assets" / "papers"))
 
     # Step 2.5: 分离非论文资源到 resources.yaml
-    split_papers_resources(data_dir)
+    if not args.skip_search:
+        split_papers_resources(data_dir)
 
     # Step 2.6: 过滤与 CAD 不相关的论文
-    filter_irrelevant_papers(data_dir, config)
+    if not args.skip_search:
+        filter_irrelevant_papers(data_dir, config)
+
+    # Step 2.7: 应用人工 overrides
+    overrides_config = research.get("overrides", {})
+    if overrides_config.get("enabled", False):
+        apply_overrides(data_dir, overrides_config)
 
     # Step 3: 获取论文 teaser 图
     if not args.skip_teasers:

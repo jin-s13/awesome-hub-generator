@@ -104,15 +104,15 @@ def _build_paper_dict(paper_data: Dict, source_repo: str) -> Dict[str, Any]:
     upvotes = paper_data.get("upvotes", 0) or 0
     authors = _parse_authors(paper_data.get("authors", []))
 
-    # 从 publishedAt 提取年份
+    # 从 publishedAt 提取年份（统一使用 extract_year）
+    from sync import extract_year
     published_at = paper_data.get("publishedAt", "")
-    year = ""
-    if isinstance(published_at, str) and len(published_at) >= 4:
-        year = published_at[:4]
-    else:
-        year = str(datetime.now().year)
-
     paper_url = f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else ""
+    year = extract_year({
+        "published": published_at,
+        "links": {"paper": paper_url},
+        "venue": "arXiv",
+    })
 
     return {
         "id": _slugify(f"{title}-{year}"),

@@ -57,13 +57,15 @@ CAD_BROAD_KEYWORDS = [
 # LLM 调用
 # ---------------------------------------------------------------------------
 
-def _llm_check_relevance(title: str, abstract: str, research_context: str) -> Optional[bool]:
+def _llm_check_relevance(title: str, abstract: str, research_context: str,
+                         relevance_criteria: Optional[Dict] = None) -> Optional[bool]:
     """用 LLM 判断论文是否与研究领域相关。
 
     Args:
         title: 论文标题
         abstract: 论文摘要
-        research_context: 研究方向描述（从 awesome.yaml project.name 获取）
+        research_context: 研究方向描述
+        relevance_criteria: 配置中的 include/exclude 标准
 
     Returns:
         True=相关, False=不相关, None=LLM 不可用
@@ -71,7 +73,21 @@ def _llm_check_relevance(title: str, abstract: str, research_context: str) -> Op
     if not API_KEY:
         return None
 
-    prompt = f"""You are a research paper curator. Determine if this paper is relevant to "{research_context}".
+    # 从配置构建 prompt，不再硬编码 CAD 标准
+    if relevance_criteria:
+        include_items = "\n".join(f"- {item}" for item in relevance_criteria.get("include", []))
+        exclude_items = "\n".join(f"- {item}" for item in relevance_criteria.get("exclude", []))
+        criteria_section = f"""
+A paper is RELEVANT only if its CORE CONTRIBUTION matches any of:
+{include_items}
+
+A paper is NOT RELEVANT if it is primarily about:
+{exclude_items}"""
+    else:
+        criteria_section = ""
+
+    prompt = f"""You are a strict research paper curator for "{research_context}".
+{criteria_section}
 
 Return a JSON object:
 {{
@@ -205,19 +221,21 @@ def is_cad_relevant(
     negative_keywords: Optional[List[str]] = None,
     min_score: float = 5.0,
     research_context: str = "",
+    relevance_criteria: Optional[Dict] = None,
 ) -> bool:
     """判断论文是否与研究方向相关。
 
     两阶段策略：
-    1. 关键词粗筛（快速）：命中负向→排除，命中核心词→保留
-    2. LLM 精筛（处理模糊地带）：关键词无法确定时用 LLM 语义判断
-    3. Fallback：LLM 不可用时用关键词宽匹配 + score
+    1. 关键词粗筛（快速召回候选）：命中负向→排除；命中核心/相义词→候选；无命中但有 score→候选
+    2. LLM 精筛（对所有候选做最终判断）：关键词命中不等于通过，LLM 必须确认
+    3. Fallback：LLM 不可用时按关键词 + score 保守判断
 
     Args:
         paper: 论文字典
         negative_keywords: 负向关键词列表
         min_score: 最低 score 门槛
         research_context: 研究方向描述
+        relevance_criteria: 配置中的 include/exclude 标准
 
     Returns:
         True if relevant, False if should be filtered out
@@ -226,50 +244,52 @@ def is_cad_relevant(
     abstract = paper.get("abstract") or ""
     text = _get_text(paper)
 
-    # ========== Stage 1: 关键词粗筛（快速，零成本） ==========
+    # ========== Stage 1: 关键词粗筛（快速召回候选，零成本） ==========
 
-    # 1a. 负向关键词快速排除
+    # 1a. 负向关键词快速排除（直接排除，不需要 LLM）
     if negative_keywords:
         for nk in negative_keywords:
             if nk.lower() in text:
                 logger.debug("关键词负向排除: %s", title[:60])
                 return False
 
-    # 1b. 核心关键词快速召回（命中即保留，不需要 LLM）
+    # 1b. 判断是否为候选论文
+    is_candidate = False
+
+    # 核心关键词召回（词边界匹配，避免 "cascade" 命中 "cad"）
     for kw in CAD_CORE_KEYWORDS:
-        if kw in text:
-            logger.debug("关键词核心命中: %s", title[:60])
-            return True
+        if re.search(r"\b" + re.escape(kw) + r"\b", text):
+            logger.debug("关键词核心命中(候选): %s", title[:60])
+            is_candidate = True
+            break
 
-    # 1c. 标题相义词快速召回
-    title_lower = title.lower()
-    for kw in CAD_BROAD_KEYWORDS:
-        if kw in title_lower:
-            logger.debug("关键词相词命中: %s", title[:60])
-            return True
+    # 标题相义词召回
+    if not is_candidate:
+        title_lower = title.lower()
+        for kw in CAD_BROAD_KEYWORDS:
+            if kw in title_lower:
+                logger.debug("关键词相词命中(候选): %s", title[:60])
+                is_candidate = True
+                break
 
-    # ========== Stage 2: LLM 精筛（处理模糊地带） ==========
-
-    # 有 score 的论文：高分直接保留，低分用 LLM 判断
+    # 有 score 的论文也是候选
     score = paper.get("score", {}).get("total")
-    if score is not None and score >= min_score:
-        # 高分论文，用 LLM 确认（可选，因为关键词没命中但 score 高）
-        if title and abstract and research_context:
-            llm_result = _llm_check_relevance(title, abstract, research_context)
-            if llm_result is True:
-                logger.debug("LLM 确认保留(高分): %s", title[:60])
-                return True
-            if llm_result is False:
-                logger.debug("LLM 排除(高分): %s", title[:60])
-                return False
-        # LLM 不可用，按 score 保留
+    if not is_candidate and score is not None and score >= min_score:
+        is_candidate = True
+
+    # 无 abstract 的上游精选论文 → 保守保留
+    if not is_candidate and not abstract and paper.get("sources"):
         return True
 
-    # 无 score 或低分论文：用 LLM 判断
+    # 不是候选 → 直接排除
+    if not is_candidate:
+        return False
+
+    # ========== Stage 2: LLM 精筛（对所有候选做最终判断） ==========
     if title and abstract and research_context:
-        llm_result = _llm_check_relevance(title, abstract, research_context)
+        llm_result = _llm_check_relevance(title, abstract, research_context, relevance_criteria)
         if llm_result is True:
-            logger.debug("LLM 判定相关: %s", title[:60])
+            logger.debug("LLM 确认相关: %s", title[:60])
             return True
         if llm_result is False:
             logger.debug("LLM 判定不相关: %s", title[:60])
@@ -277,12 +297,8 @@ def is_cad_relevant(
         # llm_result is None → LLM 不可用，走 fallback
 
     # ========== Stage 3: Fallback（LLM 不可用时） ==========
-
-    # 无 abstract 的上游精选论文 → 保守保留
-    if not paper.get("abstract") and paper.get("sources"):
-        return True
-
-    return False
+    # 关键词命中或高分 → 保守保留
+    return True
 
 
 def filter_papers(
@@ -290,6 +306,7 @@ def filter_papers(
     negative_keywords: Optional[List[str]] = None,
     min_score: float = 5.0,
     research_context: str = "",
+    relevance_criteria: Optional[Dict] = None,
 ) -> Tuple[List[Dict], List[Dict]]:
     """过滤论文列表。
 
@@ -298,6 +315,7 @@ def filter_papers(
         negative_keywords: 负向关键词
         min_score: 最低 score
         research_context: 研究方向描述
+        relevance_criteria: 配置中的 include/exclude 标准
 
     Returns:
         (relevant_papers, removed_papers)
@@ -305,7 +323,7 @@ def filter_papers(
     relevant = []
     removed = []
     for paper in papers:
-        if is_cad_relevant(paper, negative_keywords, min_score, research_context):
+        if is_cad_relevant(paper, negative_keywords, min_score, research_context, relevance_criteria):
             relevant.append(paper)
         else:
             removed.append(paper)

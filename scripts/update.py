@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
-update.py — 每日增量更新入口
+update.py — 论文更新入口（candidate 池架构）
 
-1. 通过 ResearcherAdapter 运行 arxiv-daily-researcher（Python import 方式）
-2. 将结构化结果转换为 papers.yaml 格式
-3. 去重合并到 data/papers.yaml
-4. 重新构建网站
+两种模式：
+  --init   初始化：全量搜索 → candidate 池 → 批量晋升 → 种子扩展
+  --daily  每日更新：增量搜索 → candidate 池 → 增量晋升 → 增量种子扩展
 
-Fallback: 当 researcher 不可用时，降级到 sync.py 的 arXiv API 搜索。
+数据流：
+  数据源 (arXiv / HF / GitHub) → Candidate 池 (SQLite)
+  → LLM 相关性筛选 → 展示池 (papers.yaml)
+  → 元数据富化 / teaser / 解读 → 构建网站
 """
 from __future__ import annotations
 
@@ -20,6 +22,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from config_bridge import deep_merge
@@ -52,7 +55,6 @@ def load_config() -> dict:
         config_path = ROOT / "awesome.yaml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
 
-    # Check for local override file in the same directory
     local_path = config_path.with_name(f"{config_path.stem}.local{config_path.suffix}")
     if local_path.exists():
         local_config = yaml.safe_load(local_path.read_text(encoding="utf-8")) or {}
@@ -63,7 +65,6 @@ def load_config() -> dict:
 
 
 def load_papers_yaml(path: Path) -> List[Dict[str, Any]]:
-    """Load existing papers from YAML file."""
     import yaml
     if not path.exists():
         return []
@@ -73,7 +74,6 @@ def load_papers_yaml(path: Path) -> List[Dict[str, Any]]:
 
 
 def save_papers_yaml(path: Path, papers: List[Dict[str, Any]]) -> None:
-    """Save papers to YAML file with idempotent write."""
     import yaml
     path.parent.mkdir(parents=True, exist_ok=True)
     new_content = yaml.dump(papers, allow_unicode=True, sort_keys=False, default_flow_style=False)
@@ -81,193 +81,392 @@ def save_papers_yaml(path: Path, papers: List[Dict[str, Any]]) -> None:
         logger.info(f"未变更 {path.name} ({len(papers)} 条)")
         return
     path.write_text(new_content, encoding="utf-8")
+    logger.info(f"已写入 {path.name} ({len(papers)} 条)")
 
 
-def update_from_arxiv_api(config: dict) -> List[Dict[str, Any]]:
-    """Fallback: directly fetch from arXiv API when researcher is unavailable."""
-    from scripts.sync import search_arxiv, sync_papers
+# === Step 1: 数据源 → Candidate 池 ===
+
+def fetch_from_arxiv(config: dict, search_days: int) -> List[Dict]:
+    """从 arXiv API 搜索论文。"""
+    from scripts.sync import search_arxiv
 
     research = config.get("research", {})
     keywords = research.get("keywords", [])
     categories = research.get("arxiv_categories", [])
-    search_days = research.get("daily_search_days", 3)
 
     date_from = (datetime.now() - timedelta(days=search_days)).strftime("%Y%m%d")
     date_to = datetime.now().strftime("%Y%m%d")
 
-    logger.info(f"Fallback: fetching from arXiv API (last {search_days} days)...")
-    papers = search_arxiv(keywords, categories, date_from, date_to, max_results=200)
-    return papers
+    logger.info(f"arXiv API: searching last {search_days} days...")
+    try:
+        return search_arxiv(keywords, categories, date_from, date_to, max_results=200)
+    except Exception as e:
+        logger.warning(f"arXiv API failed ({e}), skipping")
+        return []
 
+
+def fetch_from_hf(config: dict, search_days: int) -> List[Dict]:
+    """从 HuggingFace Daily/Trending 抓取论文。"""
+    from scripts.hf_source import fetch_all_hf_papers
+
+    hf_date_from = (datetime.now() - timedelta(days=search_days)).strftime("%Y-%m-%d")
+    hf_config = dict(config)
+    hf_config.setdefault("research", {})["date_from"] = hf_date_from
+    logger.info(f"HuggingFace: fetching from {hf_date_from}...")
+    try:
+        return fetch_all_hf_papers(hf_config)
+    except Exception as e:
+        logger.warning(f"HF source failed (non-fatal): {e}")
+        return []
+
+
+def collect_sources_to_pool(config: dict, pool, search_days: int):
+    """Step 1: 从所有数据源收集论文到 candidate 池。"""
+    sources_config = config.get("research", {}).get("sources", {})
+
+    # arXiv
+    if sources_config.get("arxiv", True):
+        papers = fetch_from_arxiv(config, search_days)
+        if papers:
+            added = pool.add_batch(papers, source="arxiv")
+            logger.info(f"arXiv: +{added} candidates")
+
+    # HuggingFace
+    if sources_config.get("huggingface_daily", False) or sources_config.get("huggingface_trending", False):
+        papers = fetch_from_hf(config, search_days)
+        if papers:
+            # HF 论文可能来自 daily 和 trending，分别标记
+            added = pool.add_batch(papers, source="hf")
+            logger.info(f"HuggingFace: +{added} candidates")
+
+
+# === Step 2: Candidate → 展示池晋升 ===
+
+def promote_candidates(config: dict, pool, papers_yaml: Path) -> int:
+    """Step 2: 从 candidate 池中筛选相关论文，晋升到展示池。
+
+    Returns: 晋升的论文数量。
+    """
+    from scripts.relevance_filter import is_cad_relevant
+    from scripts.sync import paper_to_yaml, classify_paper, load_yaml, save_yaml
+
+    research = config.get("research", {})
+    project = config.get("project", {})
+    research_context = f"{project.get('name', '')}: {project.get('description', '')}"
+    relevance_criteria = research.get("relevance_criteria", {})
+    taxonomy = research.get("taxonomy", {})
+    batch_size = research.get("candidate_pool", {}).get("promote_batch_size", 20)
+
+    # 获取未检查的候选论文
+    unchecked = pool.get_unchecked(limit=batch_size * 2)
+    if not unchecked:
+        logger.info("No new candidates to check")
+        return 0
+
+    logger.info(f"Checking {len(unchecked)} candidates for relevance...")
+
+    # 加载现有展示池
+    existing = load_yaml(papers_yaml) if papers_yaml.exists() else []
+    existing_keys = set()
+    for p in existing:
+        aid = p.get("arxiv_id") or ""
+        if not aid:
+            links = p.get("links", {})
+            if isinstance(links, dict):
+                url = links.get("paper", "")
+                if url:
+                    import re
+                    m = re.search(r"(\d{4}\.\d{4,5})", url)
+                    if m:
+                        aid = m.group(1)
+        existing_keys.add(aid or p.get("title", "").strip().lower())
+
+    promoted = []
+    for i, candidate in enumerate(unchecked):
+        aid = candidate.get("arxiv_id", "")
+
+        # 跳过已在展示池的论文
+        check_key = aid or candidate.get("title", "").strip().lower()
+        if check_key in existing_keys:
+            pool.mark_relevance(aid, relevant=True)
+            pool.mark_promoted(aid)
+            continue
+
+        # LLM 相关性判断
+        relevant = is_cad_relevant(
+            candidate,
+            negative_keywords=None,
+            min_score=0.0,
+            research_context=research_context,
+            relevance_criteria=relevance_criteria,
+        )
+        pool.mark_relevance(aid, relevant=relevant)
+
+        if not relevant:
+            continue
+
+        # LLM 分类
+        classification = {"category": "Others", "tags": []}
+        if taxonomy:
+            try:
+                classification = classify_paper(
+                    candidate.get("title", ""),
+                    candidate.get("abstract", ""),
+                    [],
+                    taxonomy=taxonomy,
+                    relevance_criteria=relevance_criteria,
+                )
+                if not classification.get("relevant", True):
+                    pool.mark_relevance(aid, relevant=False)
+                    continue
+            except Exception as e:
+                logger.warning(f"LLM classify failed for {aid}: {e}")
+
+        # 转为展示池格式
+        paper_entry = paper_to_yaml(
+            {
+                "title": candidate["title"],
+                "abstract": candidate.get("abstract", ""),
+                "authors": candidate.get("authors", []),
+                "published": str(candidate.get("year", "")),
+                "categories": [],
+                "links": candidate.get("links", {}),
+            },
+            classification,
+            source_repo=candidate.get("source", "candidate"),
+        )
+        if aid:
+            paper_entry["arxiv_id"] = aid
+        paper_entry["seed_expanded"] = False
+
+        promoted.append(paper_entry)
+        pool.mark_promoted(aid)
+        existing_keys.add(aid or paper_entry["id"])
+
+        if len(promoted) >= batch_size:
+            break
+
+    if promoted:
+        existing.extend(promoted)
+        save_yaml(papers_yaml, existing)
+        logger.info(f"Promoted {len(promoted)} papers to display pool")
+    else:
+        logger.info("No papers promoted")
+
+    return len(promoted)
+
+
+# === Step 3: 种子论文 references 扩展 ===
+
+def expand_seeds(config: dict, pool, papers_yaml: Path):
+    """Step 3: 从展示池论文的 references 发现新候选论文。"""
+    from scripts.seed_discoverer import discover_from_seeds
+
+    seed_config = config.get("research", {}).get("seed_discovery", {})
+    if not seed_config.get("enabled", True):
+        return
+
+    papers = load_papers_yaml(papers_yaml)
+    if not papers:
+        return
+
+    max_refs = seed_config.get("max_references_per_paper", 50)
+    max_seeds = seed_config.get("max_seeds_per_run", 10)
+
+    logger.info("Seed discovery: expanding references...")
+    added = discover_from_seeds(
+        papers,
+        pool,
+        max_refs_per_paper=max_refs,
+        max_seeds_per_run=max_seeds,
+    )
+
+    if added > 0:
+        # 标记已扩展的论文
+        from scripts.seed_discoverer import _extract_arxiv_id
+        for p in papers:
+            aid = _extract_arxiv_id(p)
+            if aid and pool.is_seen(aid):
+                pool.mark_seed_expanded(aid)
+            p["seed_expanded"] = True
+        save_papers_yaml(papers_yaml, papers)
+        logger.info(f"Seed discovery: +{added} new candidates")
+
+
+# === Step 4: 元数据富化 ===
+
+def enrich_papers_step(config: dict, papers_yaml: Path):
+    """Step 4: 对展示池中未富化的论文做元数据富化。"""
+    from scripts.enrich_metadata import enrich_papers
+    from scripts.sync import load_yaml, save_yaml
+
+    enrichment_config = config.get("research", {}).get("enrichment", {})
+    if not enrichment_config.get("enabled", True):
+        return
+
+    papers = load_yaml(papers_yaml) if papers_yaml.exists() else []
+    if not papers:
+        return
+
+    logger.info("Enriching paper metadata...")
+    papers = enrich_papers(papers, config)
+    save_yaml(papers_yaml, papers)
+    logger.info(f"Metadata enrichment done ({len(papers)} papers)")
+
+
+# === Step 5: Teaser 图 ===
+
+def fetch_teasers_step(config: dict, data_dir: Path):
+    """Step 5: 抓取论文 teaser 图。"""
+    from fetch_teasers import main as fetch_teasers
+    logger.info("Fetching paper teaser images...")
+    fetch_teasers()
+
+
+# === Step 6: 构建网站 ===
+
+def build_step(config: dict, output_dir: Path, data_dir: Path):
+    """Step 6: 构建网站。"""
+    from build import generate_site, build_site
+
+    generate_site(config, output_dir)
+
+    data_dst = output_dir / "data"
+    if data_dir.exists():
+        shutil.copytree(data_dir, data_dst, dirs_exist_ok=True)
+
+    build_site(output_dir)
+
+
+# === 主入口 ===
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="每日增量更新 / 查漏补缺")
+    parser = argparse.ArgumentParser(description="论文更新（candidate 池架构）")
     parser.add_argument("--config", default="awesome.yaml", help="配置文件路径")
     parser.add_argument("--output", default=".local/website", help="网站输出目录")
-    parser.add_argument("--data-dir", default=".local/data", help="数据目录（产出物隔离）")
+    parser.add_argument("--data-dir", default=".local/data", help="数据目录")
     parser.add_argument("--search-days", type=int, default=None,
-                        help="覆盖 awesome.yaml 中的 daily_search_days（用于 gap-fill）")
-    parser.add_argument("--skip-researcher", action="store_true",
-                        help="跳过 arxiv-daily-researcher（使用 arXiv API fallback）")
-    parser.add_argument("--skip-llm", action="store_true", help="跳过 LLM 分类")
+                        help="覆盖 daily_search_days")
+    parser.add_argument("--init", action="store_true",
+                        help="初始化模式：全量搜索 + 批量晋升 + 种子扩展")
     parser.add_argument("--skip-build", action="store_true", help="跳过 npm build")
     parser.add_argument("--skip-teasers", action="store_true", help="跳过 teaser 图抓取")
+    parser.add_argument("--skip-seed-expansion", action="store_true",
+                        help="跳过种子 references 扩展")
     args = parser.parse_args()
 
     config = load_config()
-    # Override search_days if specified (for gap-fill mode)
-    if args.search_days is not None:
-        config.setdefault("research", {})["daily_search_days"] = args.search_days
-        logger.info(f"Gap-fill mode: searching last {args.search_days} days")
+    research = config.get("research", {})
 
-    # Pre-read config sections used across multiple steps
-    history_config = config.get("research", {}).get("history", {})
-    sources_config = config.get("research", {}).get("sources", {})
-    enrichment_config = config.get("research", {}).get("enrichment", {})
+    # 决定搜索范围
+    if args.init:
+        # 初始化：从 date_from 开始全量搜索
+        date_from_str = research.get("date_from", "2020-01-01")
+        search_days = (datetime.now() - datetime.strptime(date_from_str, "%Y-%m-%d")).days
+        logger.info(f"=== INIT MODE: full search from {date_from_str} ({search_days} days) ===")
+    else:
+        # 每日更新
+        search_days = args.search_days or research.get("daily_search_days", 3)
+        logger.info(f"=== DAILY MODE: last {search_days} days ===")
 
     output_dir = (SITE_DIR / args.output).resolve()
     data_dir = (SITE_DIR / args.data_dir).resolve()
     data_dir.mkdir(parents=True, exist_ok=True)
     papers_yaml = data_dir / "papers.yaml"
 
-    import os
     os.environ["HUB_DATA_DIR"] = str(data_dir)
     os.environ.setdefault("HUB_ASSETS_DIR", str(data_dir.parent / "assets" / "papers"))
 
-    # Step 1: 论文发现
-    new_papers: List[Dict[str, Any]] = []
+    # 初始化 candidate 池
+    from scripts.candidate_pool import CandidatePool
+    db_path = research.get("candidate_pool", {}).get("db_path", "data/candidates.db")
+    pool = CandidatePool(data_dir.parent / db_path if not Path(db_path).is_absolute() else db_path)
 
-    if not args.skip_researcher:
-        try:
-            from scripts.researcher_adapter import ResearcherAdapter
+    try:
+        # Step 1: 数据源 → Candidate 池
+        logger.info("--- Step 1: Collecting from data sources ---")
+        collect_sources_to_pool(config, pool, search_days)
+        stats = pool.get_stats()
+        logger.info(f"Candidate pool: {stats['total']} total, {stats['unchecked']} unchecked")
 
-            logger.info("Running arxiv-daily-researcher via ResearcherAdapter...")
-            adapter = ResearcherAdapter(config)
-            result = adapter.run_daily_research()
-            new_papers = adapter.convert_to_papers_yaml(result)
-            logger.info(f"Researcher found {len(new_papers)} papers")
-        except ImportError as e:
-            logger.warning(f"Researcher unavailable ({e}), falling back to arXiv API")
-        except Exception as e:
-            logger.warning(f"Researcher failed ({e}), falling back to arXiv API")
+        # Step 1.5: 初始化模式下，添加初始种子论文到展示池
+        if args.init:
+            initial_seeds = research.get("seed_discovery", {}).get("initial_seed_arxiv_ids", [])
+            if initial_seeds:
+                logger.info(f"Adding {len(initial_seeds)} initial seed papers...")
+                existing = load_papers_yaml(papers_yaml)
+                existing_keys = {p.get("arxiv_id", "") for p in existing}
+                for aid in initial_seeds:
+                    if aid not in existing_keys:
+                        # 直接从 arXiv 获取元数据
+                        from scripts.sync import search_arxiv
+                        try:
+                            papers = search_arxiv([], [], "", "", max_results=1, id_list=[aid])
+                            if papers:
+                                entry = {
+                                    "id": f"seed-{aid}",
+                                    "title": papers[0]["title"],
+                                    "authors": papers[0].get("authors", []),
+                                    "abstract": papers[0].get("abstract", ""),
+                                    "year": datetime.now().year,
+                                    "venue": "arXiv",
+                                    "category": "Survey",
+                                    "tags": [],
+                                    "links": papers[0].get("links", {}),
+                                    "preview": "/assets/placeholder.svg",
+                                    "sources": [{"repo": "seed", "category": "Survey"}],
+                                    "arxiv_id": aid,
+                                    "seed_expanded": False,
+                                }
+                                existing.append(entry)
+                                pool.add(papers[0], source="initial_seed")
+                                pool.mark_promoted(aid)
+                                logger.info(f"  Added seed: {aid}")
+                        except Exception as e:
+                            logger.warning(f"  Failed to add seed {aid}: {e}")
+                save_papers_yaml(papers_yaml, existing)
 
-    if not new_papers:
-        logger.info("Using arXiv API as data source")
-        new_papers = update_from_arxiv_api(config)
+        # Step 2: Candidate → 展示池晋升
+        logger.info("--- Step 2: Promoting candidates ---")
+        promoted_count = promote_candidates(config, pool, papers_yaml)
 
-    # Step 1.1: HuggingFace 数据源（如果启用）
-    if sources_config.get("huggingface_daily", False) or sources_config.get("huggingface_trending", False):
-        try:
-            from scripts.hf_source import fetch_all_hf_papers
-            logger.info("Fetching HuggingFace data sources...")
-            hf_papers = fetch_all_hf_papers(config)
-            if hf_papers:
-                new_papers.extend(hf_papers)
-                logger.info(f"HF sources: {len(hf_papers)} papers")
-        except Exception as e:
-            logger.warning(f"HF source fetch failed (non-fatal): {e}")
+        # Step 3: 种子论文 references 扩展
+        if not args.skip_seed_expansion:
+            logger.info("--- Step 3: Seed discovery ---")
+            expand_seeds(config, pool, papers_yaml)
 
-    # Step 1.2: 跨天去重历史记录
-    if history_config.get("enabled", True) and new_papers:
-        try:
-            from scripts.history_manager import HistoryManager
+            # 种子扩展后可能有新 candidate，再晋升一轮
+            if promoted_count == 0:
+                logger.info("Second promotion round after seed expansion...")
+                promote_candidates(config, pool, papers_yaml)
 
-            hm = HistoryManager(
-                data_dir / ".history.json",
-                retention_days=history_config.get("retention_days", 30),
-            )
-            weekend_mode = history_config.get("weekend_mode", True)
-            new_papers, seen_papers = hm.filter_seen(new_papers, weekend_mode=weekend_mode)
-            logger.info(f"History filter: {len(new_papers)} new, {len(seen_papers)} seen")
+        # Step 4: 元数据富化
+        logger.info("--- Step 4: Metadata enrichment ---")
+        enrich_papers_step(config, papers_yaml)
 
-            # Backfill if not enough papers
-            min_papers = history_config.get("min_papers_per_run", 20)
-            if len(new_papers) < min_papers and seen_papers:
-                backfill = hm.backfill(seen_papers, min_papers - len(new_papers))
-                if backfill:
-                    new_papers.extend(backfill)
-                    logger.info(f"Backfilled {len(backfill)} papers from history")
-        except Exception as e:
-            logger.warning(f"History management failed (non-fatal): {e}")
+        # Step 5: Teaser 图
+        if not args.skip_teasers:
+            logger.info("--- Step 5: Teaser images ---")
+            try:
+                fetch_teasers_step(config, data_dir)
+            except Exception as e:
+                logger.warning(f"Teaser fetch failed (non-fatal): {e}")
 
-    # Step 2: 去重合并到 papers.yaml
-    if new_papers:
-        existing = load_papers_yaml(papers_yaml)
-        logger.info(f"Existing papers: {len(existing)}")
+        # Step 6: 构建网站
+        if not args.skip_build:
+            logger.info("--- Step 6: Build website ---")
+            build_step(config, output_dir, data_dir)
 
-        if args.skip_researcher:
-            # Fallback path: use sync.py's LLM classification
-            from scripts.sync import sync_papers
-            added = sync_papers(
-                new_papers, papers_yaml,
-                source_repo="arxiv", skip_llm=args.skip_llm
-            )
-        else:
-            # Researcher path: papers already have scores/analysis, just deduplicate
-            from scripts.researcher_adapter import ResearcherAdapter
-            before_count = len(new_papers)
-            merged, added = ResearcherAdapter.deduplicate(existing, new_papers)
-            save_papers_yaml(papers_yaml, merged)
-            skipped = before_count - added
-            logger.info(f"Added {added}, skipped {skipped} duplicates (total: {len(merged)})")
+        # 最终统计
+        stats = pool.get_stats()
+        papers = load_papers_yaml(papers_yaml)
+        logger.info(f"=== Done! ===")
+        logger.info(f"Candidate pool: {stats['total']} total, {stats['unchecked']} unchecked, {stats['promoted']} promoted")
+        logger.info(f"Display pool: {len(papers)} papers")
 
-        logger.info(f"Added {added} new papers")
-    else:
-        logger.info("No new papers found")
-
-    # Step 2.1: 记录到历史记录
-    if history_config.get("enabled", True) and new_papers:
-        try:
-            from scripts.history_manager import HistoryManager
-            hm = HistoryManager(
-                data_dir / ".history.json",
-                retention_days=history_config.get("retention_days", 30),
-            )
-            hm.add_entries(new_papers)
-            hm.prune()
-        except Exception as e:
-            logger.warning(f"History recording failed (non-fatal): {e}")
-
-    # Step 2.2: 元数据富化（arXiv HTML 提取）
-    if enrichment_config.get("enabled", True):
-        try:
-            from scripts.enrich_metadata import enrich_papers
-            from scripts.sync import load_yaml, save_yaml
-
-            logger.info("Enriching paper metadata...")
-            papers = load_yaml(papers_yaml)
-            if papers:
-                papers = enrich_papers(papers, config)
-                save_yaml(papers_yaml, papers)
-                logger.info(f"Metadata enrichment done ({len(papers)} papers)")
-        except Exception as e:
-            logger.warning(f"Metadata enrichment failed (non-fatal): {e}")
-
-    # Step 3: 获取论文 teaser 图
-    if not args.skip_teasers:
-        try:
-            from fetch_teasers import main as fetch_teasers
-            logger.info("Fetching paper teaser images...")
-            fetch_teasers()
-        except Exception as e:
-            logger.warning(f"Teaser fetch failed (non-fatal): {e}")
-
-    # Step 4: 重新构建网站
-    if not args.skip_build:
-        from build import generate_site, build_site
-
-        generate_site(config, output_dir)
-
-        # Copy data to website directory
-        data_src = data_dir
-        data_dst = output_dir / "data"
-        if data_src.exists():
-            shutil.copytree(data_src, data_dst, dirs_exist_ok=True)
-
-        build_site(output_dir)
-
-    logger.info("Update complete!")
+    finally:
+        pool.close()
 
 
 if __name__ == "__main__":

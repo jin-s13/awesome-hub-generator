@@ -410,16 +410,19 @@ class HtmlListParser:
 def _normalize_item(item: Dict, source_repo: str) -> Dict:
     """将 YAML/JSON 条目标准化为统一格式"""
     title = item.get("title", item.get("name", ""))
-    year = item.get("year", 0)
-    if isinstance(year, str):
-        ym = re.search(r"(\d{4})", year)
-        year = int(ym.group(1)) if ym else 0
-
     links = dict(item.get("links", {}))
     if not links.get("paper") and item.get("paper"):
         links["paper"] = item["paper"]
     if not links.get("code") and item.get("code"):
         links["code"] = item["code"]
+
+    # 统一使用 extract_year
+    from sync import extract_year
+    year = extract_year({
+        "year": item.get("year"),
+        "venue": item.get("venue", ""),
+        "links": links,
+    })
 
     paper_id = item.get("id", slugify(f"{title[:60]}-{year}" if year else title[:60]))
 

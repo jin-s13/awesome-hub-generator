@@ -21,6 +21,51 @@ research:
     - "text-to-CAD"
     - "CAD program"
 
+  # === 论文分类体系（动态，按领域配置） ===
+  # LLM 会为每篇论文分配一个或多个 paper_type 标签。不同领域可自定义。
+  taxonomy:
+    # 论文类型标签（多选）
+    paper_types:
+      - label: "method"
+        description: "新模型、算法、训练或推理方法"
+      - label: "benchmark"
+        description: "数据集、评测任务、指标和基准测试"
+      - label: "system"
+        description: "系统、框架、平台和工具"
+      - label: "theory"
+        description: "理论推导、证明和边界分析"
+      - label: "survey"
+        description: "综述、分类体系和观点总结"
+      - label: "application"
+        description: "特定领域或实际场景的应用研究"
+    # 分析维度：LLM 提取的论文属性
+    dimensions:
+      - name: "techniques"
+        description: "key techniques or methods used"
+      - name: "inputs"
+        description: "input types (e.g., text, image, point cloud)"
+      - name: "outputs"
+        description: "output types (e.g., 3D model, code, classification)"
+
+  # === 相关性判断标准（LLM 语义过滤用） ===
+  # LLM 根据这些标准判断论文是否与本项目相关
+  relevance_criteria:
+    include:
+      - "CAD model generation, reconstruction, or retrieval (text-to-CAD, img2CAD, etc.)"
+      - "B-Rep / CSG / parametric modeling / sketch + extrude / CAD programs"
+      - "Engineering drawing, manufacturing, 3D printing for mechanical design"
+      - "Shape abstraction, shape parsing, reverse engineering for CAD"
+      - "Geometric modeling (NURBS, splines, curves/surfaces for design)"
+      - "CAD-specific datasets, benchmarks, or tools"
+    exclude:
+      - "General 3D reconstruction / NeRF / Gaussian splatting / scene reconstruction"
+      - "General AI/ML, LLM agents, RAG, coding assistants, software engineering"
+      - "Robotics, embodied AI, world models, autonomous driving"
+      - "NLP, speech, OCR, document parsing, financial/time-series"
+      - "General computer vision (detection, segmentation, image generation)"
+      - "3D scene understanding / scene graph / indoor-outdoor reconstruction"
+      - "Spatial intelligence / foundation models for 3D without CAD-specific contribution"
+
   # === 负向关键词（命中直接排除） ===
   negative_keywords:
     # 医学
@@ -105,6 +150,31 @@ research:
     enabled: true
     min_stars: 5
     max_sources: 10
+
+  # === 种子论文自动发现 ===
+  # 展示池中的论文自动作为种子，通过 Semantic Scholar API 获取其 references
+  # references 中的论文加入 candidate 池，经 LLM 筛选后可晋升到展示池
+  seed_discovery:
+    enabled: true
+    api: "semantic_scholar"
+    max_references_per_paper: 50      # 每篇种子最多获取多少条 references
+    max_seeds_per_run: 10             # 每次 update 最多扩展多少篇种子
+    initial_seed_arxiv_ids:           # 初始化时手动指定的种子论文
+      - "2104.01268"                  # DeepCAD
+      - "2305.16303"                  # SkexGen
+
+  # === Candidate 论文池 ===
+  # 所有数据源的论文先进入 candidate 池，经 LLM 相关性筛选后晋升到展示池
+  candidate_pool:
+    enabled: true
+    db_path: "data/candidates.db"     # SQLite 数据库路径
+    promote_batch_size: 20            # 每次最多晋升多少篇（控制 LLM 成本）
+
+  # === 人工维护 ===
+  # 通过 overrides 文件覆盖自动流程的结果
+  overrides:
+    enabled: true
+    file: "data/papers.overrides.yaml"
 
   # === 评分配置 ===
   scoring:

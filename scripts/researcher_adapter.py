@@ -203,12 +203,13 @@ class ResearcherAdapter:
                 pdf_url = paper_meta.pdf_url if hasattr(paper_meta, "pdf_url") else ""
                 categories = paper_meta.categories if hasattr(paper_meta, "categories") else []
 
-                # Determine year
-                year = ""
-                if isinstance(published, datetime):
-                    year = str(published.year)
-                elif isinstance(published, str) and len(published) >= 4:
-                    year = published[:4]
+                # Determine year (统一使用 extract_year)
+                from sync import extract_year
+                year = extract_year({
+                    "published": published,
+                    "links": {"paper": url},
+                    "venue": _infer_venue(categories),
+                })
 
                 # Build entry
                 entry: Dict[str, Any] = {

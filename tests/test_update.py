@@ -97,19 +97,15 @@ class TestMainLogic:
 
     def test_fallback_path_logic(self, mocker):
         """Verify fallback: when researcher fails, use arXiv API."""
-        # Test that update_from_arxiv_api calls search_arxiv
-        # We test this by patching scripts.sync.search_arxiv directly
         with patch("scripts.sync.search_arxiv") as mock_search:
             mock_search.return_value = [
                 {"title": "Paper 1", "abstract": "Abstract", "categories": ["cs.CV"]}
             ]
 
-            # Import inside the patched context so "from sync import search_arxiv"
-            # gets the patched version
-            from scripts.update import update_from_arxiv_api
+            from scripts.update import fetch_from_arxiv
 
             config = {"project": {"name": "Test"}, "research": {"keywords": ["test"]}}
-            new_papers = update_from_arxiv_api(config)
+            new_papers = fetch_from_arxiv(config, search_days=3)
 
             assert len(new_papers) == 1
             mock_search.assert_called_once()
@@ -121,10 +117,10 @@ class TestMainLogic:
                 {"title": "Paper 1", "abstract": "Abstract", "categories": ["cs.CV"]}
             ]
 
-            from scripts.update import update_from_arxiv_api
+            from scripts.update import fetch_from_arxiv
 
             config = {"project": {"name": "Test"}, "research": {"keywords": ["test"]}}
-            new_papers = update_from_arxiv_api(config)
+            new_papers = fetch_from_arxiv(config, search_days=3)
 
             assert len(new_papers) == 1
             mock_search.assert_called_once()

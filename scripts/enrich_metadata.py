@@ -151,12 +151,17 @@ def _is_icon_or_logo(src: str) -> bool:
 
 
 def _normalize_url(src: str, arxiv_id: str) -> str:
-    """Normalize a (possibly relative) URL from an arXiv HTML page."""
+    """Normalize a (possibly relative) URL from an arXiv HTML page.
+
+    arXiv HTML pages are served at https://arxiv.org/html/{arxiv_id} and
+    image src attributes use relative paths like "{arxiv_id}v1/figures/img.png"
+    (already including the version number), so we prepend only the base URL.
+    """
     if src.startswith("http://") or src.startswith("https://"):
         return src
     if src.startswith("/"):
         return f"https://arxiv.org{src}"
-    return f"https://arxiv.org/html/{arxiv_id}/{src}"
+    return f"https://arxiv.org/html/{src}"
 
 
 def _extract_authors_html(html: str) -> List[str]:
@@ -900,11 +905,11 @@ def enrich_papers(papers: List[Dict], config: dict) -> List[Dict]:
     extract_affiliations = enrichment_config.get("extract_affiliations", True)
     extract_methods = enrichment_config.get("extract_methods", True)
 
-    # Filter papers that need enrichment (have arxiv ID)
+    # Filter papers that need enrichment (have arxiv ID, not yet enriched)
     to_enrich = []
     for p in papers:
         arxiv_id = _extract_arxiv_id(p)
-        if arxiv_id:
+        if arxiv_id and not p.get("enriched"):
             to_enrich.append(p)
 
     if not to_enrich:
