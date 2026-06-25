@@ -26,9 +26,7 @@ from urllib.request import Request, urlopen
 import requests
 import yaml
 
-# Suppress SSL warnings for mineru.net (certificate uses *.mineru.org.cn)
 import urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ROOT = generator root (for templates, scripts)
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,8 +58,12 @@ HEADERS = {
 # MinerU API
 MINERU_BASE_URL = "https://mineru.net/api/v4"
 MINERU_API_KEY = os.environ.get("MINERU_API_KEY", "")
+MINERU_VERIFY_SSL = os.environ.get("MINERU_VERIFY_SSL", "true").lower() not in ("0", "false", "no")
 MINERU_POLL_INTERVAL = 3
 MINERU_POLL_TIMEOUT = 60
+
+if not MINERU_VERIFY_SSL:
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def _extract_arxiv_id(url: str) -> Optional[str]:
@@ -259,7 +261,7 @@ def _extract_pdf_figures_mineru(arxiv_id: str, dest_path: Path) -> bool:
                 "enable_table": False,
             },
             timeout=30,
-            verify=False,
+            verify=MINERU_VERIFY_SSL,
         )
         result = resp.json()
         if result.get("code") != 0:
@@ -279,7 +281,7 @@ def _extract_pdf_figures_mineru(arxiv_id: str, dest_path: Path) -> bool:
                 f"{MINERU_BASE_URL}/extract/task/{task_id}",
                 headers={"Authorization": f"Bearer {MINERU_API_KEY}"},
                 timeout=30,
-                verify=False,
+                verify=MINERU_VERIFY_SSL,
             )
             result = resp.json()
             if result.get("code") != 0:
@@ -300,7 +302,7 @@ def _extract_pdf_figures_mineru(arxiv_id: str, dest_path: Path) -> bool:
 
     # Step 3: Download ZIP and extract first large image
     try:
-        resp = requests.get(zip_url, timeout=60, verify=False)
+        resp = requests.get(zip_url, timeout=60, verify=MINERU_VERIFY_SSL)
         resp.raise_for_status()
 
         with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:

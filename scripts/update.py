@@ -48,14 +48,18 @@ logging.basicConfig(
 logger = logging.getLogger("update")
 
 
-def load_config() -> dict:
+def load_config(config_path: str = "awesome.yaml") -> dict:
     import yaml
-    config_path = SITE_DIR / "awesome.yaml"
-    if not config_path.exists():
-        config_path = ROOT / "awesome.yaml"
-    config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    path = Path(config_path)
+    if not path.is_absolute():
+        site_path = SITE_DIR / config_path
+        path = site_path if site_path.exists() else ROOT / config_path
+    if not path.exists():
+        logger.error(f"未找到配置文件: {config_path}")
+        sys.exit(1)
+    config = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
-    local_path = config_path.with_name(f"{config_path.stem}.local{config_path.suffix}")
+    local_path = path.with_name(f"{path.stem}.local{path.suffix}")
     if local_path.exists():
         local_config = yaml.safe_load(local_path.read_text(encoding="utf-8")) or {}
         config = deep_merge(config, local_config)
@@ -327,14 +331,10 @@ def fetch_teasers_step(config: dict, data_dir: Path):
 
 def build_step(config: dict, output_dir: Path, data_dir: Path):
     """Step 6: 构建网站。"""
-    from build import generate_site, build_site
+    from build import generate_site, build_site, copy_runtime_assets
 
     generate_site(config, output_dir)
-
-    data_dst = output_dir / "data"
-    if data_dir.exists():
-        shutil.copytree(data_dir, data_dst, dirs_exist_ok=True)
-
+    copy_runtime_assets(output_dir, data_dir)
     build_site(output_dir)
 
 
@@ -356,7 +356,7 @@ def main():
                         help="跳过种子 references 扩展")
     args = parser.parse_args()
 
-    config = load_config()
+    config = load_config(args.config)
     research = config.get("research", {})
 
     # 决定搜索范围
@@ -373,10 +373,15 @@ def main():
     output_dir = (SITE_DIR / args.output).resolve()
     data_dir = (SITE_DIR / args.data_dir).resolve()
     data_dir.mkdir(parents=True, exist_ok=True)
+    for empty_file in ("papers.yaml", "resources.yaml", "datasets.yaml", "tools.yaml"):
+        f = data_dir / empty_file
+        if not f.exists():
+            f.write_text("[]\n", encoding="utf-8")
     papers_yaml = data_dir / "papers.yaml"
 
     os.environ["HUB_DATA_DIR"] = str(data_dir)
     os.environ.setdefault("HUB_ASSETS_DIR", str(data_dir.parent / "assets" / "papers"))
+    os.environ["HUB_CONFIG_PATH"] = str((SITE_DIR / args.config).resolve())
 
     # 初始化 candidate 池
     from scripts.candidate_pool import CandidatePool
@@ -465,6 +470,19 @@ def main():
         logger.info(f"=== Done! ===")
         logger.info(f"Candidate pool: {stats['total']} total, {stats['unchecked']} unchecked, {stats['promoted']} promoted")
         logger.info(f"Display pool: {len(papers)} papers")
+        try:
+            from scripts.llm_cache import get_default_cache
+            llm_stats = get_default_cache().stats()
+            for task, item in llm_stats.get("calls_by_task", {}).items():
+                logger.info(
+                    "LLM %s: calls=%s cache_hits=%s tokens=%s",
+                    task,
+                    item.get("calls", 0),
+                    item.get("cache_hits", 0),
+                    item.get("total_tokens", 0),
+                )
+        except Exception as e:
+            logger.debug("LLM stats unavailable: %s", e)
 
     finally:
         pool.close()

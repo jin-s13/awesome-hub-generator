@@ -75,7 +75,7 @@ def init_site(name: str, title: str, output: str, description: str = "") -> None
     # 3. 生成 .gitignore
     gitignore = site_dir / ".gitignore"
     gitignore.write_text(
-        ".local/\nnode_modules/\ndist/\n.env\n*.pyc\n__pycache__/\n.DS_Store\n",
+        ".local/website/\n.local/researcher/\nnode_modules/\ndist/\n.env\n*.pyc\n__pycache__/\n.DS_Store\n",
         encoding="utf-8",
     )
     print(f"[init] 已生成: .gitignore")

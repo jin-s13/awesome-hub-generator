@@ -93,15 +93,13 @@ jobs:
           if [ -n "${{ github.event.inputs.search_days }}" ]; then
             SEARCH_DAYS_ARGS="--search-days ${{ github.event.inputs.search_days }}"
           fi
-          SKIP_BUILD_ARGS=""
-          if [ "${{ github.event.inputs.skip_build }}" = "true" ]; then
-            SKIP_BUILD_ARGS="--skip-build"
-          fi
-          python awesome-hub-generator/scripts/update.py $SEARCH_DAYS_ARGS $SKIP_BUILD_ARGS
+          python awesome-hub-generator/scripts/update.py $SEARCH_DAYS_ARGS --skip-build
 
       - name: Build site
         if: github.event.inputs.skip_build != 'true'
         run: |
+          cd ${{ github.workspace }}
+          python awesome-hub-generator/scripts/build.py --render-only --skip-build
           cd ${{ github.workspace }}/.local/website
           npm install
           npm run build
@@ -117,7 +115,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .local/data/ .local/assets/ || true
+          git add -f .local/data/ .local/assets/ || true
           if git diff --staged --quiet; then
             echo "No data changes to commit"
           else

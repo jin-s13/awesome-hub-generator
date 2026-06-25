@@ -65,8 +65,12 @@ export type Resource = {
 
 function loadYaml<T>(relativePath: string): T[] {
   const file = path.join(process.cwd(), relativePath);
+  if (!fs.existsSync(file)) {
+    return [];
+  }
   const raw = fs.readFileSync(file, 'utf-8');
-  return YAML.parse(raw) as T[];
+  const parsed = YAML.parse(raw);
+  return Array.isArray(parsed) ? parsed as T[] : [];
 }
 
 export function getPapers(): Paper[] {

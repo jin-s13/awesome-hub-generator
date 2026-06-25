@@ -34,6 +34,25 @@ from slugify import slugify
 from volcenginesdkarkruntime import Ark
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+try:
+    from scripts.llm_cache import (
+        LLMCallResult,
+        estimate_tokens_from_messages,
+        estimate_tokens_from_text,
+        get_default_cache,
+        paper_identity_from,
+        usage_from_provider,
+    )
+except ImportError:
+    from llm_cache import (  # type: ignore
+        LLMCallResult,
+        estimate_tokens_from_messages,
+        estimate_tokens_from_text,
+        get_default_cache,
+        paper_identity_from,
+        usage_from_provider,
+    )
+
 ROOT = Path(__file__).resolve().parents[1]
 
 # ---- LLM 调用 ----
@@ -48,11 +67,11 @@ def _get_ark_client() -> Optional[Ark]:
     return Ark(base_url=base_url, api_key=api_key)
 
 
-def llm_chat(messages: List[Dict], model: str = "") -> str:
-    """调用火山引擎 DeepSeek LLM"""
+def llm_chat_with_usage(messages: List[Dict], model: str = "", max_tokens: int = 1024) -> LLMCallResult:
+    """调用火山引擎 DeepSeek LLM，返回文本和 token 用量。"""
     client = _get_ark_client()
     if not client:
-        return ""
+        return LLMCallResult("")
 
     model = model or os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash-260425")
 
@@ -61,18 +80,30 @@ def llm_chat(messages: List[Dict], model: str = "") -> str:
             model=model,
             input=messages,
             temperature=0.1,
-            max_output_tokens=1024,
+            max_output_tokens=max_tokens,
         )
         # responses API 返回格式
+        text = ""
         for output in response.output:
             if output.type == "message":
                 for content in output.content:
                     if content.type == "output_text":
-                        return content.text
-        return ""
+                        text = content.text
+                        break
+        usage = usage_from_provider(
+            getattr(response, "usage", None),
+            prompt_fallback=estimate_tokens_from_messages(messages),
+            completion_fallback=estimate_tokens_from_text(text),
+        )
+        return LLMCallResult.from_text(text, usage)
     except Exception as e:
         print(f"[sync] LLM 调用失败: {e}")
-        return ""
+        return LLMCallResult("")
+
+
+def llm_chat(messages: List[Dict], model: str = "") -> str:
+    """调用火山引擎 DeepSeek LLM。"""
+    return llm_chat_with_usage(messages, model).text
 
 
 def classify_paper(title: str, abstract: str, categories: List[str],
@@ -128,7 +159,26 @@ arXiv Categories: {', '.join(categories)}
 
 Return ONLY valid JSON, no other text."""
 
-    raw = llm_chat([{"role": "user", "content": prompt}])
+    model = os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash-260425")
+    messages = [{"role": "user", "content": prompt}]
+    paper_identity = paper_identity_from(
+        title=title,
+    )
+    cache = get_default_cache()
+    raw = cache.get_or_call_llm(
+        task_type="classify_paper",
+        model=model,
+        prompt_version="classify_v1",
+        paper_identity=paper_identity,
+        abstract=abstract,
+        criteria={
+            "research_context": research_context,
+            "taxonomy": taxonomy or {},
+            "relevance_criteria": relevance_criteria or {},
+        },
+        messages=messages,
+        call_func=lambda: llm_chat_with_usage(messages, model=model),
+    ).text
     fallback = {"paper_type": ["method"], "tags": []}
     if not raw:
         return fallback

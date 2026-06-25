@@ -280,7 +280,7 @@ def generate_site(config: dict, output_dir) -> None:
     # 确保必要的空数据文件存在（避免构建时 ENOENT）
     data_dir = output_dir / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("resources.yaml", "datasets.yaml", "tools.yaml"):
+    for name in ("papers.yaml", "resources.yaml", "datasets.yaml", "tools.yaml"):
         f = data_dir / name
         if not f.exists():
             f.write_text("[]\n", encoding="utf-8")
@@ -292,13 +292,34 @@ def build_site(output_dir: Path) -> None:
     result = subprocess.run(["npm", "install"], cwd=str(output_dir), capture_output=True, text=True)
     if result.returncode != 0:
         print(f"[build] npm install 失败:\n{result.stderr}")
-        return
+        raise RuntimeError("npm install failed")
 
     result = subprocess.run(["npm", "run", "build"], cwd=str(output_dir), capture_output=True, text=True)
     if result.returncode != 0:
         print(f"[build] npm build 失败:\n{result.stderr}")
-        return
+        raise RuntimeError("npm build failed")
     print(f"[build] 网站构建完成，输出目录: {output_dir / 'dist'}")
+
+
+def copy_runtime_assets(output_dir: Path, data_dir: Path) -> None:
+    """复制网站构建需要的运行期数据和资源。"""
+    data_src = data_dir
+    data_dst = output_dir / "data"
+    if data_src.exists():
+        shutil.copytree(data_src, data_dst, dirs_exist_ok=True)
+        print(f"[build] 已复制数据到 {data_dst}")
+
+    assets_src = data_dir.parent / "assets" / "papers"
+    assets_dst = output_dir / "public" / "assets" / "papers"
+    if assets_src.exists():
+        shutil.copytree(assets_src, assets_dst, dirs_exist_ok=True)
+        print(f"[build] 已复制 teaser 图到 {assets_dst}")
+
+    resource_src = SITE_DIR / "resource"
+    resource_dst = output_dir / "resource"
+    if resource_src.exists():
+        shutil.copytree(resource_src, resource_dst, dirs_exist_ok=True)
+        print(f"[build] 已复制资源到 {resource_dst}")
 
 
 def discover_and_ingest(config: dict, data_dir: Path = None) -> int:
@@ -536,6 +557,7 @@ def main():
     parser.add_argument("--skip-download", action="store_true", help="跳过 PDF 下载和解读生成（已弃用）")
     parser.add_argument("--skip-teasers", action="store_true", help="跳过论文 teaser 图获取")
     parser.add_argument("--skip-interpretations", action="store_true", help="跳过论文解读生成")
+    parser.add_argument("--render-only", action="store_true", help="仅从已有 data/assets 渲染网站，不执行搜索/富化/解读")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -553,10 +575,24 @@ def main():
     papers_yaml = root_data_dir / "papers.yaml"
 
     # Ensure datasets.yaml and tools.yaml exist
-    for empty_file in ["datasets.yaml", "tools.yaml"]:
+    for empty_file in ["papers.yaml", "datasets.yaml", "tools.yaml", "resources.yaml"]:
         ef = root_data_dir / empty_file
         if not ef.exists():
             ef.write_text("[]\n", encoding="utf-8")
+
+    if args.render_only:
+        generate_site(config, output_dir)
+        copy_runtime_assets(output_dir, data_dir)
+        _config_path = Path(args.config)
+        if not _config_path.is_absolute():
+            _config_path = SITE_DIR / args.config
+        if _config_path.exists():
+            shutil.copy2(_config_path, output_dir / "awesome.yaml")
+        generate_readme_with_table(config, output_dir, data_dir)
+        if not args.skip_build:
+            build_site(output_dir)
+        print(f"[build] 完成！网站已生成到 {output_dir}")
+        return
 
     # Step 1: 自动发现并吸纳上游 awesome 项目数据（精选论文优先）
     if not args.skip_discover:
@@ -686,26 +722,8 @@ def main():
     # Step 5: 生成 Astro 网站
     generate_site(config, output_dir)
 
-    # Step 5: 复制 data 到网站目录
-    data_src = data_dir
-    data_dst = output_dir / "data"
-    if data_src.exists():
-        shutil.copytree(data_src, data_dst, dirs_exist_ok=True)
-        print(f"[build] 已复制数据到 {data_dst}")
-
-    # Step 5.5: 复制 teaser 图到网站 public 目录
-    assets_src = data_dir.parent / "assets" / "papers"
-    assets_dst = output_dir / "public" / "assets" / "papers"
-    if assets_src.exists():
-        shutil.copytree(assets_src, assets_dst, dirs_exist_ok=True)
-        print(f"[build] 已复制 teaser 图到 {assets_dst}")
-
-    # Step 6: 复制 resource 到网站目录（供 Astro 访问解读文件）
-    resource_src = SITE_DIR / "resource"
-    resource_dst = output_dir / "resource"
-    if resource_src.exists():
-        shutil.copytree(resource_src, resource_dst, dirs_exist_ok=True)
-        print(f"[build] 已复制资源到 {resource_dst}")
+    # Step 5: 复制 data / teaser / resource 到网站目录
+    copy_runtime_assets(output_dir, data_dir)
 
     # Step 7: 复制 awesome.yaml 到输出目录
     _config_path = Path(args.config)

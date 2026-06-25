@@ -23,6 +23,25 @@ from typing import Any, Dict, List, Optional
 import yaml
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+try:
+    from scripts.llm_cache import (
+        LLMCallResult,
+        estimate_tokens_from_messages,
+        estimate_tokens_from_text,
+        get_default_cache,
+        paper_identity_from,
+        usage_from_provider,
+    )
+except ImportError:
+    from llm_cache import (  # type: ignore
+        LLMCallResult,
+        estimate_tokens_from_messages,
+        estimate_tokens_from_text,
+        get_default_cache,
+        paper_identity_from,
+        usage_from_provider,
+    )
+
 logger = logging.getLogger("generate_interpretations")
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,7 +82,7 @@ def _get_ark_client():
     wait=wait_exponential(multiplier=1, min=2, max=10),
     reraise=True,
 )
-def _llm_call_once(client: Any, messages: List[Dict], model: str, max_tokens: int) -> str:
+def _llm_call_once(client: Any, messages: List[Dict], model: str, max_tokens: int) -> LLMCallResult:
     """Single LLM call attempt (retried by tenacity on transient failures)."""
     response = client.responses.create(
         model=model,
@@ -71,15 +90,32 @@ def _llm_call_once(client: Any, messages: List[Dict], model: str, max_tokens: in
         temperature=0.1,
         max_output_tokens=max_tokens,
     )
+    text = ""
     for output in response.output:
         if output.type == "message":
             for content in output.content:
                 if content.type == "output_text":
-                    return content.text
-    return ""
+                    text = content.text
+                    break
+    usage = usage_from_provider(
+        getattr(response, "usage", None),
+        prompt_fallback=estimate_tokens_from_messages(messages),
+        completion_fallback=estimate_tokens_from_text(text),
+    )
+    return LLMCallResult.from_text(text, usage)
 
 
-def _llm_chat(messages: List[Dict], model: str = "", max_tokens: int = 1024) -> str:
+def _llm_chat(
+    messages: List[Dict],
+    model: str = "",
+    max_tokens: int = 1024,
+    *,
+    task_type: str = "interpretation",
+    prompt_version: str = "v1",
+    paper_identity: str = "",
+    abstract: str = "",
+    criteria: Any = None,
+) -> str:
     """Call LLM with automatic retry on transient failures."""
     client = _get_ark_client()
     if not client:
@@ -88,7 +124,17 @@ def _llm_chat(messages: List[Dict], model: str = "", max_tokens: int = 1024) -> 
     model = model or MODEL_NAME
 
     try:
-        return _llm_call_once(client, messages, model, max_tokens)
+        result = get_default_cache().get_or_call_llm(
+            task_type=task_type,
+            model=model,
+            prompt_version=prompt_version,
+            paper_identity=paper_identity,
+            abstract=abstract,
+            criteria=criteria or {},
+            messages=messages,
+            call_func=lambda: _llm_call_once(client, messages, model, max_tokens),
+        )
+        return result.text
     except Exception as e:
         logger.warning(f"LLM call failed after retries: {e}")
         return ""
@@ -133,7 +179,15 @@ Abstract: {abstract[:1500]}
 
 Return ONLY valid JSON, no other text."""
 
-    raw = _llm_chat([{"role": "user", "content": prompt}], max_tokens=1024)
+    raw = _llm_chat(
+        [{"role": "user", "content": prompt}],
+        max_tokens=1024,
+        task_type="tldr_reasoning",
+        prompt_version="tldr_reasoning_v1",
+        paper_identity=paper_identity_from(title=title),
+        abstract=abstract,
+        criteria={"keywords": keywords[:20]},
+    )
     if not raw:
         return {"tldr": "", "reasoning": "", "keyword_scores": {}}
 
@@ -168,7 +222,15 @@ Abstract: {abstract[:2000]}
 
 Return ONLY valid JSON, no other text."""
 
-    raw = _llm_chat([{"role": "user", "content": prompt}], model=SMART_MODEL, max_tokens=4096)
+    raw = _llm_chat(
+        [{"role": "user", "content": prompt}],
+        model=SMART_MODEL,
+        max_tokens=4096,
+        task_type="deep_analysis",
+        prompt_version="deep_analysis_v1",
+        paper_identity=paper_identity_from(title=title),
+        abstract=abstract,
+    )
     if not raw:
         return {}
 
@@ -209,7 +271,14 @@ Return ONLY valid JSON, no other text:
   "abstract_cn": "Chinese translation of the abstract"
 }}"""
 
-    raw = _llm_chat([{"role": "user", "content": prompt}], max_tokens=4096)
+    raw = _llm_chat(
+        [{"role": "user", "content": prompt}],
+        max_tokens=4096,
+        task_type="translate_title_abstract",
+        prompt_version="translate_title_abstract_v1",
+        paper_identity=paper_identity_from(title=title),
+        abstract=abstract,
+    )
     if not raw:
         return {"title_cn": "", "abstract_cn": ""}
 
@@ -239,7 +308,15 @@ Title: {title}
 Abstract: {abstract[:1000]}
 
 Return ONLY the Chinese summary, no JSON, no explanation, no English."""
-    raw = _llm_chat([{"role": "user", "content": prompt}], max_tokens=256)
+    raw = _llm_chat(
+        [{"role": "user", "content": prompt}],
+        max_tokens=256,
+        task_type="translate_tldr",
+        prompt_version="translate_tldr_v1",
+        paper_identity=paper_identity_from(title=title),
+        abstract=abstract,
+        criteria={"tldr_en": tldr_en},
+    )
     return raw.strip() if raw else ""
 
 
@@ -294,7 +371,14 @@ Return ONLY valid JSON, no other text:
   "tech_stack": ["tech1", "tech2"]
 }}"""
 
-    raw = _llm_chat([{"role": "user", "content": prompt}], max_tokens=2048)
+    raw = _llm_chat(
+        [{"role": "user", "content": prompt}],
+        max_tokens=2048,
+        task_type="translate_analysis",
+        prompt_version="translate_analysis_v1",
+        paper_identity=paper_identity_from(title=methodology or key_results or "analysis"),
+        criteria=analysis,
+    )
     if not raw:
         return {}
 
@@ -676,6 +760,19 @@ def main():
     # Step 4: Backfill interpretation links
     # =====================================================================
     backfill_interpretation_links(papers_path)
+
+    try:
+        llm_stats = get_default_cache().stats()
+        for task, item in llm_stats.get("calls_by_task", {}).items():
+            logger.info(
+                "LLM %s: calls=%s cache_hits=%s tokens=%s",
+                task,
+                item.get("calls", 0),
+                item.get("cache_hits", 0),
+                item.get("total_tokens", 0),
+            )
+    except Exception as e:
+        logger.debug("LLM stats unavailable: %s", e)
 
 
 if __name__ == "__main__":

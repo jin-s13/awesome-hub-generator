@@ -15,6 +15,25 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("relevance_filter")
 
+try:
+    from scripts.llm_cache import (
+        LLMCallResult,
+        estimate_tokens_from_messages,
+        estimate_tokens_from_text,
+        get_default_cache,
+        paper_identity_from,
+        usage_from_provider,
+    )
+except ImportError:
+    from llm_cache import (  # type: ignore
+        LLMCallResult,
+        estimate_tokens_from_messages,
+        estimate_tokens_from_text,
+        get_default_cache,
+        paper_identity_from,
+        usage_from_provider,
+    )
+
 # LLM config
 API_KEY = os.environ.get("ARK_API_KEY", "")
 API_BASE_URL = os.environ.get("ARK_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
@@ -56,6 +75,35 @@ CAD_BROAD_KEYWORDS = [
 # ---------------------------------------------------------------------------
 # LLM 调用
 # ---------------------------------------------------------------------------
+
+def _chat_completion_call(messages: List[Dict], max_tokens: int) -> LLMCallResult:
+    """Call chat/completions and return response text with token usage."""
+    import urllib.request
+
+    payload = json.dumps({
+        "model": MODEL_NAME,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": 0.1,
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        f"{API_BASE_URL}/chat/completions",
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {API_KEY}",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+        content = data["choices"][0]["message"]["content"]
+        usage = usage_from_provider(
+            data.get("usage"),
+            prompt_fallback=estimate_tokens_from_messages(messages),
+            completion_fallback=estimate_tokens_from_text(content),
+        )
+        return LLMCallResult.from_text(content, usage)
 
 def _llm_check_relevance(title: str, abstract: str, research_context: str,
                          relevance_criteria: Optional[Dict] = None) -> Optional[bool]:
@@ -100,35 +148,29 @@ Abstract: {abstract[:2000]}
 
 Return ONLY valid JSON, no other text."""
 
-    import urllib.request
-
-    payload = json.dumps({
-        "model": MODEL_NAME,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 256,
-        "temperature": 0.1,
-    }).encode("utf-8")
-
-    req = urllib.request.Request(
-        f"{API_BASE_URL}/chat/completions",
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {API_KEY}",
-        },
-    )
-
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            content = data["choices"][0]["message"]["content"]
-            # Extract JSON from response
-            json_match = re.search(r'\{[^{}]*"relevant"[^{}]*\}', content, re.DOTALL)
-            if json_match:
-                result = json.loads(json_match.group(0))
-                return bool(result.get("relevant", False))
-            # Fallback: check for true/false in text
-            return "true" in content.lower() and "false" not in content.lower()
+        messages = [{"role": "user", "content": prompt}]
+        paper_identity = paper_identity_from(title=title)
+        content = get_default_cache().get_or_call_llm(
+            task_type="relevance_check",
+            model=MODEL_NAME,
+            prompt_version="relevance_v1",
+            paper_identity=paper_identity,
+            abstract=abstract,
+            criteria={
+                "research_context": research_context,
+                "relevance_criteria": relevance_criteria or {},
+            },
+            messages=messages,
+            call_func=lambda: _chat_completion_call(messages, 256),
+        ).text
+        # Extract JSON from response
+        json_match = re.search(r'\{[^{}]*"relevant"[^{}]*\}', content, re.DOTALL)
+        if json_match:
+            result = json.loads(json_match.group(0))
+            return bool(result.get("relevant", False))
+        # Fallback: check for true/false in text
+        return "true" in content.lower() and "false" not in content.lower()
     except Exception as e:
         logger.debug("LLM relevance check failed: %s", e)
         return None
@@ -168,33 +210,23 @@ Abstract: {abstract[:2000]}
 
 Return ONLY valid JSON, no other text."""
 
-    import urllib.request
-
-    payload = json.dumps({
-        "model": MODEL_NAME,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 256,
-        "temperature": 0.1,
-    }).encode("utf-8")
-
-    req = urllib.request.Request(
-        f"{API_BASE_URL}/chat/completions",
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {API_KEY}",
-        },
-    )
-
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            content = data["choices"][0]["message"]["content"]
-            json_match = re.search(r'\{[^{}]*"is_excluded"[^{}]*\}', content, re.DOTALL)
-            if json_match:
-                result = json.loads(json_match.group(0))
-                return bool(result.get("is_excluded", False))
-            return None
+        messages = [{"role": "user", "content": prompt}]
+        content = get_default_cache().get_or_call_llm(
+            task_type="negative_filter",
+            model=MODEL_NAME,
+            prompt_version="negative_filter_v1",
+            paper_identity=paper_identity_from(title=title),
+            abstract=abstract,
+            criteria={"negative_keywords": negative_keywords[:15]},
+            messages=messages,
+            call_func=lambda: _chat_completion_call(messages, 256),
+        ).text
+        json_match = re.search(r'\{[^{}]*"is_excluded"[^{}]*\}', content, re.DOTALL)
+        if json_match:
+            result = json.loads(json_match.group(0))
+            return bool(result.get("is_excluded", False))
+        return None
     except Exception as e:
         logger.debug("LLM negative filter failed: %s", e)
         return None
