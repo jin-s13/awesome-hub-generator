@@ -280,8 +280,19 @@ def fetch_all_hf_papers(config: dict) -> List[Dict]:
     if daily_enabled:
         date_from = config.get("research", {}).get("date_from")
         if date_from:
-            today = datetime.now().strftime("%Y-%m-%d")
-            daily_papers = fetch_hf_daily_papers(date_from, today)
+            today = datetime.now()
+            start = datetime.strptime(date_from, "%Y-%m-%d")
+            # 限制 HF Daily 最多抓取 90 天，避免逐天请求过多
+            max_days = 90
+            if (today - start).days > max_days:
+                start = today - timedelta(days=max_days)
+                logger.warning(
+                    "HF Daily 日期范围超过 %d 天，仅抓取最近 %d 天 (%s ~ %s)",
+                    max_days, max_days, start.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d"),
+                )
+            daily_papers = fetch_hf_daily_papers(
+                start.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d")
+            )
         else:
             daily_papers = fetch_hf_daily_papers()
 

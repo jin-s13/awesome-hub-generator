@@ -81,17 +81,32 @@ def copy_template(src_dir: Path, dst_dir: Path, variables: dict) -> None:
     if dst_dir.exists():
         # Use subprocess for stubborn directories like node_modules
         subprocess.run(["rm", "-rf", str(dst_dir)], capture_output=True)
+    # 跳过 node_modules、.git、dist 等目录
+    skip_dirs = {"node_modules", ".git", "dist", ".astro"}
+    # 二进制文件扩展名
+    binary_extensions = {
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico",
+        ".woff", ".woff2", ".ttf", ".eot", ".otf",
+        ".wasm", ".node", ".so", ".dylib", ".dll",
+        ".pdf", ".zip", ".gz", ".tar",
+    }
     for item in src_dir.rglob("*"):
         if item.is_file() and ".git" not in item.parts:
+            # 跳过 node_modules 等目录
+            if any(skip_dir in item.parts for skip_dir in skip_dirs):
+                continue
             rel = item.relative_to(src_dir)
             dst_file = dst_dir / rel
-            # Skip binary files (images, etc.)
-            binary_extensions = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".woff", ".woff2", ".ttf"}
             if item.suffix.lower() in binary_extensions:
                 dst_file.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(item, dst_file)
             else:
-                render_template(item, dst_file, variables)
+                try:
+                    render_template(item, dst_file, variables)
+                except UnicodeDecodeError:
+                    # 二进制文件 fallback：直接复制
+                    dst_file.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(item, dst_file)
 
 
 def split_papers_resources(data_dir: Path) -> None:
@@ -233,8 +248,9 @@ def apply_overrides(data_dir: Path, overrides_config: dict) -> None:
     save_yaml(papers_yaml, papers)
 
 
-def generate_site(config: dict, output_dir: Path) -> None:
+def generate_site(config: dict, output_dir) -> None:
     """从模板生成 Astro 网站到输出目录"""
+    output_dir = Path(output_dir)
     project = config.get("project", {})
     website = config.get("website", {})
 
@@ -256,6 +272,14 @@ def generate_site(config: dict, output_dir: Path) -> None:
     print(f"[build] 生成网站到 {output_dir}")
     copy_template(template_dir, output_dir, variables)
     print("[build] 网站模板生成完成")
+
+    # 确保必要的空数据文件存在（避免构建时 ENOENT）
+    data_dir = output_dir / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    for name in ("resources.yaml", "datasets.yaml", "tools.yaml"):
+        f = data_dir / name
+        if not f.exists():
+            f.write_text("[]\n", encoding="utf-8")
 
 
 def build_site(output_dir: Path) -> None:

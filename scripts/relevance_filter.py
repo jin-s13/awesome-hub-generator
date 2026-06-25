@@ -253,29 +253,33 @@ def is_cad_relevant(
                 logger.debug("关键词负向排除: %s", title[:60])
                 return False
 
-    # 1b. 判断是否为候选论文
-    is_candidate = False
+    # 当提供了 relevance_criteria 时，跳过领域特定的关键词粗筛，直接用 LLM 判断
+    if relevance_criteria:
+        is_candidate = True
+    else:
+        # 1b. 判断是否为候选论文（使用领域关键词）
+        is_candidate = False
 
-    # 核心关键词召回（词边界匹配，避免 "cascade" 命中 "cad"）
-    for kw in CAD_CORE_KEYWORDS:
-        if re.search(r"\b" + re.escape(kw) + r"\b", text):
-            logger.debug("关键词核心命中(候选): %s", title[:60])
-            is_candidate = True
-            break
-
-    # 标题相义词召回
-    if not is_candidate:
-        title_lower = title.lower()
-        for kw in CAD_BROAD_KEYWORDS:
-            if kw in title_lower:
-                logger.debug("关键词相词命中(候选): %s", title[:60])
+        # 核心关键词召回（词边界匹配，避免 "cascade" 命中 "cad"）
+        for kw in CAD_CORE_KEYWORDS:
+            if re.search(r"\b" + re.escape(kw) + r"\b", text):
+                logger.debug("关键词核心命中(候选): %s", title[:60])
                 is_candidate = True
                 break
 
-    # 有 score 的论文也是候选
-    score = paper.get("score", {}).get("total")
-    if not is_candidate and score is not None and score >= min_score:
-        is_candidate = True
+        # 标题相义词召回
+        if not is_candidate:
+            title_lower = title.lower()
+            for kw in CAD_BROAD_KEYWORDS:
+                if kw in title_lower:
+                    logger.debug("关键词相词命中(候选): %s", title[:60])
+                    is_candidate = True
+                    break
+
+        # 有 score 的论文也是候选
+        score = paper.get("score", {}).get("total")
+        if not is_candidate and score is not None and score >= min_score:
+            is_candidate = True
 
     # 无 abstract 的上游精选论文 → 保守保留
     if not is_candidate and not abstract and paper.get("sources"):

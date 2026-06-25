@@ -400,27 +400,28 @@ def main():
                 for aid in initial_seeds:
                     if aid not in existing_keys:
                         # 直接从 arXiv 获取元数据
-                        from scripts.sync import search_arxiv
+                        from scripts.sync import fetch_arxiv_by_id
                         try:
-                            papers = search_arxiv([], [], "", "", max_results=1, id_list=[aid])
-                            if papers:
+                            paper = fetch_arxiv_by_id(aid)
+                            if paper:
+                                from scripts.sync import extract_year
                                 entry = {
                                     "id": f"seed-{aid}",
-                                    "title": papers[0]["title"],
-                                    "authors": papers[0].get("authors", []),
-                                    "abstract": papers[0].get("abstract", ""),
-                                    "year": datetime.now().year,
+                                    "title": paper["title"],
+                                    "authors": paper.get("authors", []),
+                                    "abstract": paper.get("abstract", ""),
+                                    "year": extract_year(paper),
                                     "venue": "arXiv",
-                                    "category": "Survey",
+                                    "paper_type": ["method"],
                                     "tags": [],
-                                    "links": papers[0].get("links", {}),
+                                    "links": paper.get("links", {}),
                                     "preview": "/assets/placeholder.svg",
-                                    "sources": [{"repo": "seed", "category": "Survey"}],
+                                    "sources": [{"repo": "seed"}],
                                     "arxiv_id": aid,
                                     "seed_expanded": False,
                                 }
                                 existing.append(entry)
-                                pool.add(papers[0], source="initial_seed")
+                                pool.add(paper, source="initial_seed")
                                 pool.mark_promoted(aid)
                                 logger.info(f"  Added seed: {aid}")
                         except Exception as e:

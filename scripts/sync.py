@@ -153,6 +153,35 @@ Return ONLY valid JSON, no other text."""
 
 ARXIV_API_URL = "https://export.arxiv.org/api/query"
 
+
+def fetch_arxiv_by_id(arxiv_id: str) -> Optional[Dict]:
+    """通过 arXiv ID 获取单篇论文元数据。"""
+    url = f"{ARXIV_API_URL}?id_list={arxiv_id}"
+    for attempt in range(3):
+        try:
+            resp = requests.get(url, timeout=30, headers={"User-Agent": "awesome-hub-generator/1.0"})
+            resp.raise_for_status()
+            entries = re.findall(r"<entry>(.*?)</entry>", resp.text, re.DOTALL)
+            if not entries:
+                return None
+            entry = entries[0]
+            return {
+                "title": _clean_xml(_extract_tag(entry, "title")),
+                "abstract": _clean_xml(_extract_tag(entry, "summary")),
+                "published": _extract_tag(entry, "published")[:10],
+                "categories": re.findall(r'term="([^"]+)"', entry),
+                "authors": _extract_authors(entry),
+                "links": {"paper": f"https://arxiv.org/abs/{arxiv_id}"},
+                "arxiv_id": arxiv_id,
+            }
+        except requests.RequestException as e:
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+            else:
+                logger.warning(f"arXiv fetch failed for {arxiv_id}: {e}")
+                return None
+
+
 def search_arxiv(keywords: List[str], categories: List[str],
                  date_from: str = "", date_to: str = "",
                  max_results: int = 500) -> List[Dict]:
