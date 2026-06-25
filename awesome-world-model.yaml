@@ -1,0 +1,112 @@
+# =============================================================================
+# awesome-hub-generator 配置文件
+# 实例: Awesome World Model Hub
+# =============================================================================
+
+project:
+  name: "Awesome World Model Hub"
+  description: "A curated hub for World Model papers, datasets, tools, and research."
+  github_url: "https://github.com/jin-s13/awesome-world-model-hub"
+  site_url: "https://jin-s13.github.io/awesome-world-model-hub"
+  generator_repo: "jin-s13/awesome-hub-generator"
+
+research:
+  # === 搜索关键词 ===
+  keywords:
+    - "world model"
+    - "world simulator"
+    - "generative world model"
+    - "interactive world model"
+    - "video world model"
+    - "world dynamics prediction"
+    - "model-based reinforcement learning world model"
+
+  # === 负向关键词（命中直接排除） ===
+  negative_keywords:
+    # 医学
+    - "medical imaging"
+    - "protein folding"
+    - "drug discovery"
+    - "cancer detection"
+    - "tumor"
+    - "radiology"
+    - "clinical diagnosis"
+    - "dental"
+    - "ECG"
+    - "EEG"
+    # 金融
+    - "stock market"
+    - "trading"
+    - "cryptocurr"
+    # 其他不相关
+    - "weather forecast"
+    - "climate change"
+    - "anomaly detection"
+
+  # === 领域加分词 ===
+  domain_boost_keywords:
+    - "world model"
+    - "world simulator"
+    - "generative simulator"
+    - "environment model"
+    - "dynamics model"
+    - "model-based RL"
+    - "dreamer"
+    - "imagination"
+    - "video generation"
+    - "game engine"
+
+  # === arXiv 分类过滤 ===
+  arxiv_categories:
+    - "cs.CV"
+    - "cs.LG"
+    - "cs.AI"
+    - "cs.RO"
+
+  # === 全量构建的起始日期 ===
+  date_from: "2022-01-01"
+
+  # === 每日搜索的天数范围 ===
+  daily_search_days: 3
+
+  # === 评分配置 ===
+  scoring:
+    base_score: 1.5
+    weight_coefficient: 2.5
+    max_score_per_keyword: 10
+    author_bonus:
+      enabled: false
+      bonus_points: 5.0
+      expert_authors: []
+
+  # === 深度分析配置 ===
+  deep_analysis:
+    enabled: true
+    min_score: 30
+    pdf_parser: "mineru"
+    max_papers_per_run: 10
+
+  # === 关键词趋势追踪 ===
+  keyword_tracking:
+    enabled: true
+    report_frequency: "weekly"
+
+website:
+  sections:
+    papers: true
+    datasets: true
+    tools: true
+    resources: true
+    trends: true
+  nav:
+    - home
+    - papers
+    - trends
+    - datasets
+    - tools
+    - resources
+  features:
+    filter_bar: true
+    i18n: true
+    teaser_images: true
+    search: true

@@ -503,8 +503,10 @@ def main():
         logger.error("Invalid papers.yaml format")
         return
 
-    # Get keywords from config
-    config_path = SITE_DIR / "awesome.yaml"
+    # Get keywords from config (支持通过 HUB_CONFIG_PATH 环境变量指定配置文件)
+    config_path = Path(os.environ.get("HUB_CONFIG_PATH", "")) if os.environ.get("HUB_CONFIG_PATH") else None
+    if not config_path or not config_path.exists():
+        config_path = SITE_DIR / "awesome.yaml"
     if not config_path.exists():
         config_path = ROOT / "awesome.yaml"
     config = {}

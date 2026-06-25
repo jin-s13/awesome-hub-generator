@@ -222,12 +222,13 @@ def is_cad_relevant(
     min_score: float = 5.0,
     research_context: str = "",
     relevance_criteria: Optional[Dict] = None,
+    domain_keywords: Optional[List[str]] = None,
 ) -> bool:
     """判断论文是否与研究方向相关。
 
     两阶段策略：
-    1. 关键词粗筛（快速召回候选）：命中负向→排除；命中核心/相义词→候选；无命中但有 score→候选
-    2. LLM 精筛（对所有候选做最终判断）：关键词命中不等于通过，LLM 必须确认
+    1. 关键词粗筛（快速召回候选）：命中负向→排除；命中领域词→候选；有 score→候选
+    2. LLM 精筛（对所有候选做最终判断）
     3. Fallback：LLM 不可用时按关键词 + score 保守判断
 
     Args:
@@ -236,6 +237,7 @@ def is_cad_relevant(
         min_score: 最低 score 门槛
         research_context: 研究方向描述
         relevance_criteria: 配置中的 include/exclude 标准
+        domain_keywords: 领域核心关键词（来自 config），替代硬编码 CAD 词
 
     Returns:
         True if relevant, False if should be filtered out
@@ -244,9 +246,9 @@ def is_cad_relevant(
     abstract = paper.get("abstract") or ""
     text = _get_text(paper)
 
-    # ========== Stage 1: 关键词粗筛（快速召回候选，零成本） ==========
+    # ========== Stage 1: 关键词粗筛 ==========
 
-    # 1a. 负向关键词快速排除（直接排除，不需要 LLM）
+    # 1a. 负向关键词快速排除
     if negative_keywords:
         for nk in negative_keywords:
             if nk.lower() in text:
@@ -260,15 +262,16 @@ def is_cad_relevant(
         # 1b. 判断是否为候选论文（使用领域关键词）
         is_candidate = False
 
-        # 核心关键词召回（词边界匹配，避免 "cascade" 命中 "cad"）
-        for kw in CAD_CORE_KEYWORDS:
-            if re.search(r"\b" + re.escape(kw) + r"\b", text):
+        # 领域关键词召回（优先用 config 的 domain_keywords，fallback 到 CAD_CORE_KEYWORDS）
+        core_keywords = domain_keywords if domain_keywords else CAD_CORE_KEYWORDS
+        for kw in core_keywords:
+            if re.search(r"\b" + re.escape(kw.lower()) + r"\b", text):
                 logger.debug("关键词核心命中(候选): %s", title[:60])
                 is_candidate = True
                 break
 
-        # 标题相义词召回
-        if not is_candidate:
+        # 标题相义词召回（仅 CAD fallback 模式下使用）
+        if not is_candidate and not domain_keywords:
             title_lower = title.lower()
             for kw in CAD_BROAD_KEYWORDS:
                 if kw in title_lower:
@@ -289,19 +292,16 @@ def is_cad_relevant(
     if not is_candidate:
         return False
 
-    # ========== Stage 2: LLM 精筛（对所有候选做最终判断） ==========
+    # ========== Stage 2: LLM 精筛 ==========
     if title and abstract and research_context:
         llm_result = _llm_check_relevance(title, abstract, research_context, relevance_criteria)
         if llm_result is True:
-            logger.debug("LLM 确认相关: %s", title[:60])
             return True
         if llm_result is False:
-            logger.debug("LLM 判定不相关: %s", title[:60])
             return False
         # llm_result is None → LLM 不可用，走 fallback
 
-    # ========== Stage 3: Fallback（LLM 不可用时） ==========
-    # 关键词命中或高分 → 保守保留
+    # ========== Stage 3: Fallback ==========
     return True
 
 
@@ -311,6 +311,7 @@ def filter_papers(
     min_score: float = 5.0,
     research_context: str = "",
     relevance_criteria: Optional[Dict] = None,
+    domain_keywords: Optional[List[str]] = None,
 ) -> Tuple[List[Dict], List[Dict]]:
     """过滤论文列表。
 
@@ -320,6 +321,7 @@ def filter_papers(
         min_score: 最低 score
         research_context: 研究方向描述
         relevance_criteria: 配置中的 include/exclude 标准
+        domain_keywords: 领域核心关键词（来自 config）
 
     Returns:
         (relevant_papers, removed_papers)
@@ -327,7 +329,7 @@ def filter_papers(
     relevant = []
     removed = []
     for paper in papers:
-        if is_cad_relevant(paper, negative_keywords, min_score, research_context, relevance_criteria):
+        if is_cad_relevant(paper, negative_keywords, min_score, research_context, relevance_criteria, domain_keywords):
             relevant.append(paper)
         else:
             removed.append(paper)

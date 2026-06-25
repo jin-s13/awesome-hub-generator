@@ -174,7 +174,7 @@ def split_papers_resources(data_dir: Path) -> None:
 
 
 def filter_irrelevant_papers(data_dir: Path, config: dict) -> None:
-    """过滤与 CAD 不相关的论文"""
+    """过滤与研究方向不相关的论文"""
     import yaml
     from relevance_filter import filter_papers
 
@@ -189,11 +189,15 @@ def filter_irrelevant_papers(data_dir: Path, config: dict) -> None:
     research = config.get("research", {})
     negative = research.get("negative_keywords", [])
     min_score = research.get("scoring", {}).get("filter_min_score", 5.0)
-    project = config.get("project", {})
-    research_context = f"{project.get('name', '')}: {project.get('description', '')}"
+    domain_keywords = research.get("keywords", []) + research.get("domain_boost_keywords", [])
+    project_desc = config.get("project", {}).get("description", "")
+    research_context = project_desc or " ".join(domain_keywords[:5])
 
-    relevant, removed = filter_papers(papers, negative, min_score, research_context,
-                                       research.get("relevance_criteria"))
+    relevant, removed = filter_papers(
+        papers, negative, min_score,
+        research_context=research_context,
+        domain_keywords=domain_keywords,
+    )
 
     if removed:
         papers_path.write_text(
@@ -542,6 +546,7 @@ def main():
     # 测试隔离时通过环境变量传递 data_dir 给子脚本
     import os
     os.environ["HUB_DATA_DIR"] = str(data_dir)
+    os.environ["HUB_CONFIG_PATH"] = str(Path(args.config).resolve())
 
     root_data_dir = data_dir
     root_data_dir.mkdir(parents=True, exist_ok=True)
