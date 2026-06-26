@@ -16,9 +16,28 @@ const displayTldr = (lang === 'zh' && paper.tldr_cn) ? paper.tldr_cn : (paper.tl
 const typeLabel = paperTypeLabel(paper);
 const searchText = [paper.title, paper.venue, paper.year, typeLabel, ...(paperTypeList(paper)), ...(paper.tags || []), ...(paper.representations || []), sourceRepos].join(' ').toLowerCase();
 const interpPath = localizePath(`/papers/${paper.id}`, lang);
+const linkLabelMap: Record<string, { en: string; zh: string }> = {
+  paper: { en: 'Paper', zh: '论文' },
+  pdf: { en: 'PDF', zh: 'PDF' },
+  code: { en: 'Code', zh: '代码' },
+  github: { en: 'GitHub', zh: 'GitHub' },
+  repo: { en: 'Repo', zh: '仓库' },
+  dataset: { en: 'Dataset', zh: '数据集' },
+  data: { en: 'Data', zh: '数据' },
+  project: { en: 'Project', zh: '项目' },
+  demo: { en: 'Demo', zh: '演示' },
+};
+function linkLabel(key: string) {
+  const normalized = key.toLowerCase();
+  const known = linkLabelMap[normalized];
+  if (known) return known[lang];
+  return key
+    .replace(/[_-]/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
 
 // Score badge
-const score = paper.score?.total;
+const score = paper.score?.read_first_score ?? paper.score?.total;
 const scoreLevel = score != null
   ? score >= 80 ? 'high'
     : score >= 60 ? 'medium'
@@ -43,12 +62,8 @@ const detailUrl = localizePath(`/papers/${paper.id}`, lang);
       {(paper.tags || []).slice(0, 6).map((tag) => <span class="tag">{tag}</span>)}
     </div>
     <div class="link-row">
-      {linkEntries.map(([key, value]) => <a href={value} target="_blank" rel="noreferrer">{key}</a>)}
+      {linkEntries.map(([key, value]) => <a href={value} target="_blank" rel="noreferrer">{linkLabel(key)}</a>)}
       <a href={interpPath} class="interpret-link">{_t('paperCard.analysis')}</a>
-      <a href={detailUrl} class="detail-link">{_t('paperCard.details')}</a>
-    </div>
-    <div class="source-row" title={sourceRepos}>
-      {(paper.sources || []).map((source) => <span>{source.repo.split('/')[0]}</span>)}
     </div>
   </div>
 </article>

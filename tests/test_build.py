@@ -9,9 +9,12 @@ from scripts.build import (
     load_config,
     render_template,
     generate_readme_with_table,
+    derive_datasets_from_benchmark_papers,
     filter_auto_discovered_entries,
     filter_irrelevant_papers,
     prune_disabled_section_data,
+    rank_papers_step,
+    sync_unified_paper_sources,
     sync_options_from_config,
 )
 
@@ -51,6 +54,114 @@ class TestRenderTemplate:
         dst.mkdir()
         render_template(src, dst, {"KEY": "val"})
         # Should not crash, just skip
+
+
+class TestAstroTemplate:
+    """Test generated Astro template avoids production-only root redirects."""
+
+    def test_root_route_is_template_page_not_astro_redirect(self):
+        root = Path(__file__).resolve().parents[1]
+        config = (root / "templates/astro-site/astro.config.mjs").read_text(encoding="utf-8")
+        index_page = root / "templates/astro-site/src/pages/index.astro"
+
+        assert "redirects" not in config
+        assert index_page.exists()
+
+    def test_datasets_page_does_not_build_category_filter(self):
+        root = Path(__file__).resolve().parents[1]
+        datasets_page = (root / "templates/astro-site/src/pages/[lang]/datasets.astro").read_text(encoding="utf-8")
+
+        assert "const categories" not in datasets_page
+        assert "categories=" not in datasets_page
+
+    def test_analysis_page_is_aggregate_analysis_without_survey_paper_grid(self):
+        root = Path(__file__).resolve().parents[1]
+        analysis_page = root / "templates/astro-site/src/pages/[lang]/analysis.astro"
+        content = analysis_page.read_text(encoding="utf-8")
+
+        assert analysis_page.exists()
+        assert "paperTypeList(paper).includes('survey')" not in content
+        assert "surveyPapers" not in content
+        assert "FilterBar" not in content
+        assert "PaperCard" not in content
+        assert "Survey papers in the index" not in content
+        assert "pages.analysis.title" in content
+        assert "Cross-paper synthesis" in content
+
+    def test_legacy_survey_route_redirects_to_analysis(self):
+        root = Path(__file__).resolve().parents[1]
+        survey_page = root / "templates/astro-site/src/pages/[lang]/surveys.astro"
+        content = survey_page.read_text(encoding="utf-8")
+
+        assert survey_page.exists()
+        assert "/analysis" in content
+        assert "window.location.replace" in content
+
+    def test_analysis_page_reads_generated_survey_topics(self):
+        root = Path(__file__).resolve().parents[1]
+        data_lib = (root / "templates/astro-site/src/lib/data.ts").read_text(encoding="utf-8")
+        analysis_page = (root / "templates/astro-site/src/pages/[lang]/analysis.astro").read_text(encoding="utf-8")
+
+        assert "getSurveys" in data_lib
+        assert "label_zh?: string" in data_lib
+        assert "description_zh?: string" in data_lib
+        assert "related_work_outline_zh?: string[]" in data_lib
+        assert "const surveyTopics = getSurveys()" in analysis_page
+        assert "related_work_outline" in analysis_page
+        assert "localizedTopicLabel" in analysis_page
+        assert "localizedOutline" in analysis_page
+        assert "componentLabel" in analysis_page
+
+    def test_paper_card_does_not_render_duplicate_source_row(self):
+        root = Path(__file__).resolve().parents[1]
+        paper_card = (root / "templates/astro-site/src/components/PaperCard.astro").read_text(encoding="utf-8")
+
+        assert 'class="source-row"' not in paper_card
+        assert "sourceRepos" in paper_card
+
+    def test_paper_card_uses_readable_link_labels_and_one_detail_action(self):
+        root = Path(__file__).resolve().parents[1]
+        paper_card = (root / "templates/astro-site/src/components/PaperCard.astro").read_text(encoding="utf-8")
+
+        assert "linkLabelMap" in paper_card
+        assert "{linkLabel(key)}" in paper_card
+        assert "detail-link" not in paper_card
+        assert "paperCard.details" not in paper_card
+
+    def test_resource_card_uses_readable_link_labels(self):
+        root = Path(__file__).resolve().parents[1]
+        resource_card = (root / "templates/astro-site/src/components/ResourceCard.astro").read_text(encoding="utf-8")
+
+        assert "linkLabelMap" in resource_card
+        assert "{linkLabel(key)}" in resource_card
+
+    def test_trends_page_normalizes_tags_and_infers_missing_years(self):
+        root = Path(__file__).resolve().parents[1]
+        trends_page = (root / "templates/astro-site/src/pages/[lang]/trends.astro").read_text(encoding="utf-8")
+
+        assert "normalizeTag" in trends_page
+        assert "inferPaperYear" in trends_page
+        assert "yearCounts[y]" in trends_page
+        assert "'Unknown'" not in trends_page
+        assert "componentAgg" in trends_page
+        assert "Read-first component trends" in trends_page
+
+    def test_paper_detail_localizes_score_component_notes(self):
+        root = Path(__file__).resolve().parents[1]
+        detail_page = (root / "templates/astro-site/src/pages/[lang]/papers/[id].astro").read_text(encoding="utf-8")
+        data_lib = (root / "templates/astro-site/src/lib/data.ts").read_text(encoding="utf-8")
+
+        assert "explanation_zh?: string" in data_lib
+        assert "localizedComponentExplanation" in detail_page
+        assert "formatEvidenceDetail" in detail_page
+        assert "component.explanation_zh" in detail_page
+
+    def test_paper_detail_uses_readable_resource_link_labels(self):
+        root = Path(__file__).resolve().parents[1]
+        detail_page = (root / "templates/astro-site/src/pages/[lang]/papers/[id].astro").read_text(encoding="utf-8")
+
+        assert "linkLabelMap" in detail_page
+        assert "{linkLabel(key)}" in detail_page
 
 
 class TestGenerateReadmeWithTable:
@@ -101,6 +212,47 @@ class TestSectionDataPruning:
         assert (data_dir / "datasets.yaml").read_text(encoding="utf-8") == "- name: Dataset\n"
         assert (data_dir / "tools.yaml").read_text(encoding="utf-8") == "[]\n"
         assert (data_dir / "resources.yaml").read_text(encoding="utf-8") == "[]\n"
+
+
+class TestDatasetDerivation:
+    """Test benchmark papers populate datasets.yaml."""
+
+    def test_derives_dataset_entries_from_benchmark_papers(self, tmp_path):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "papers.yaml").write_text(
+            """
+- id: bench-1
+  title: "WorldBench: A Benchmark for World Models"
+  abstract: "We introduce a benchmark for world models."
+  year: 2026
+  paper_type: [benchmark]
+  tags: [benchmark, world model]
+  links:
+    paper: https://arxiv.org/abs/2601.00001
+  sources:
+    - repo: arxiv
+- id: method-1
+  title: "A World Model Method"
+  year: 2026
+  paper_type: [method]
+  tags: [world model]
+""",
+            encoding="utf-8",
+        )
+        (data_dir / "datasets.yaml").write_text("[]\n", encoding="utf-8")
+
+        added = derive_datasets_from_benchmark_papers(
+            data_dir,
+            {"website": {"sections": {"datasets": True}}},
+        )
+
+        datasets = __import__("yaml").safe_load((data_dir / "datasets.yaml").read_text()) or []
+        assert added == 1
+        assert datasets[0]["name"] == "WorldBench"
+        assert "category" not in datasets[0]
+        assert "type" not in datasets[0]
+        assert datasets[0]["links"]["paper"] == "https://arxiv.org/abs/2601.00001"
 
 
 class TestAutoDiscoverFiltering:
@@ -165,6 +317,94 @@ class TestRelevanceFiltering:
         )
 
         assert seen["relevance_criteria"]["include"] == ["world models"]
+
+
+class TestRankPapersStep:
+    """Test PaperRank-lite build step wiring."""
+
+    def test_calls_rank_enricher_by_default(self, tmp_path, monkeypatch):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "papers.yaml").write_text("[]\n", encoding="utf-8")
+        seen = {}
+
+        def fake_enrich(path, config):
+            seen["path"] = path
+            seen["config"] = config
+            return 0
+
+        monkeypatch.setattr("scripts.paper_rank.enrich_paper_rank_scores", fake_enrich)
+
+        rank_papers_step(data_dir, {"research": {"keywords": ["CAD"]}})
+
+        assert seen["path"] == data_dir / "papers.yaml"
+        assert seen["config"]["research"]["keywords"] == ["CAD"]
+
+    def test_skips_when_disabled(self, tmp_path, monkeypatch):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "papers.yaml").write_text("[]\n", encoding="utf-8")
+        called = False
+
+        def fake_enrich(path, config):
+            nonlocal called
+            called = True
+            return 0
+
+        monkeypatch.setattr("scripts.paper_rank.enrich_paper_rank_scores", fake_enrich)
+
+        rank_papers_step(data_dir, {"research": {"ranking": {"enabled": False}}})
+
+        assert called is False
+
+
+class TestUnifiedPaperSourcesStep:
+    """Test build.py syncs unified source results through sync_papers."""
+
+    def test_syncs_collected_papers_to_papers_yaml(self, tmp_path, monkeypatch):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        seen = {}
+
+        def fake_collect(config, search_days=None, max_results=500):
+            seen["search_days"] = search_days
+            seen["max_results"] = max_results
+            return {
+                "papers": [
+                    {
+                        "title": "Unified Build Paper",
+                        "abstract": "A paper discovered by unified sources.",
+                        "links": {"paper": "https://arxiv.org/abs/2601.00001"},
+                    }
+                ],
+                "sources": {"arxiv": {"enabled": True, "count": 1}},
+            }
+
+        def fake_sync(papers, output_path, source_repo="arxiv", **kwargs):
+            seen["papers"] = papers
+            seen["output_path"] = output_path
+            seen["source_repo"] = source_repo
+            seen["kwargs"] = kwargs
+            return len(papers)
+
+        monkeypatch.setattr("scripts.paper_sources.collect_paper_sources", fake_collect)
+        monkeypatch.setattr("sync.sync_papers", fake_sync)
+
+        added = sync_unified_paper_sources(
+            data_dir,
+            {"project": {"description": "World models"}, "research": {"keywords": ["world model"]}},
+            skip_llm=True,
+            max_papers=10,
+            search_days=30,
+        )
+
+        assert added == 1
+        assert seen["search_days"] == 30
+        assert seen["max_results"] == 10
+        assert seen["output_path"] == data_dir / "papers.yaml"
+        assert seen["source_repo"] == "unified-sources"
+        assert seen["kwargs"]["skip_llm"] is True
+        assert seen["kwargs"]["research_context"] == "World models"
 
 
 class TestSyncOptionsFromConfig:

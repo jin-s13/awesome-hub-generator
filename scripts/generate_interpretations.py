@@ -170,7 +170,12 @@ def generate_tldr_and_reasoning(title: str, abstract: str, keywords: List[str]) 
   }}
 }}
 
-Score each keyword 0-10 based on relevance to the paper.
+Before scoring, scan the title and abstract like a careful researcher:
+- Identify the paper's core claims, supporting evidence, methodology, results, and limitations.
+- Separate direct evidence from adjacent terminology or broad motivation.
+- Score only what is supported by the visible title and abstract; do not infer missing experiments, code, datasets, or results.
+
+Score each keyword 0-10 based on relevance to the paper's core contribution.
 "has_real_world" should be true if the paper includes real-world experiments, benchmarks, datasets, or empirical evaluations.
 Keywords to score: {kw_list}
 
@@ -183,7 +188,7 @@ Return ONLY valid JSON, no other text."""
         [{"role": "user", "content": prompt}],
         max_tokens=1024,
         task_type="tldr_reasoning",
-        prompt_version="tldr_reasoning_v1",
+        prompt_version="tldr_reasoning_v2",
         paper_identity=paper_identity_from(title=title),
         abstract=abstract,
         criteria={"keywords": keywords[:20]},
@@ -217,6 +222,14 @@ def generate_deep_analysis(title: str, abstract: str) -> Dict:
   "limitations": ["Limitation 1", "Limitation 2", ...]
 }}
 
+Extraction guidance:
+- Extract the main claims and tie them to supporting evidence visible in the title or abstract.
+- Capture methodology details: model design, data, training/evaluation setup, baselines, and metrics when stated.
+- Capture experimental results separately from proposed ideas or motivation.
+- Preserve stated limitations and uncertainty; do not soften them.
+- Note connections to related work only when the title or abstract makes them explicit.
+- Do not invent claims, datasets, code availability, citation facts, source locations, or results that are not visible.
+
 Title: {title}
 Abstract: {abstract[:2000]}
 
@@ -227,7 +240,7 @@ Return ONLY valid JSON, no other text."""
         model=SMART_MODEL,
         max_tokens=4096,
         task_type="deep_analysis",
-        prompt_version="deep_analysis_v1",
+        prompt_version="deep_analysis_v2",
         paper_identity=paper_identity_from(title=title),
         abstract=abstract,
     )

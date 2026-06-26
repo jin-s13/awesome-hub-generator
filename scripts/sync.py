@@ -145,7 +145,9 @@ def classify_paper(title: str, abstract: str, categories: List[str],
   A paper is RELEVANT if its core contribution matches any of:
 {include_items}
   A paper is NOT RELEVANT if it is primarily about:
-{exclude_items}"""
+{exclude_items}
+  Adjacent terminology alone is not enough: if the paper merely mentions the topic, uses a neighboring domain,
+  or lacks a direct contribution to the configured scope, mark relevant=false."""
 
     dim_section = "\n".join(dim_lines) if dim_lines else '- "tags": list of 3-6 relevant tags'
 
@@ -168,7 +170,7 @@ Return ONLY valid JSON, no other text."""
     raw = cache.get_or_call_llm(
         task_type="classify_paper",
         model=model,
-        prompt_version="classify_v1",
+        prompt_version="classify_v2",
         paper_identity=paper_identity,
         abstract=abstract,
         criteria={

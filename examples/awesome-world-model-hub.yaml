@@ -106,6 +106,26 @@ research:
   # === 每日搜索的天数范围 ===
   daily_search_days: 3
 
+  # === 数据源开关 ===
+  sources:
+    arxiv: true
+    huggingface_daily: true
+    huggingface_trending: true
+    huggingface_datasets: true
+    upstream_awesome: true
+    alphaxiv: false
+
+  # === 数据集发现 ===
+  datasets:
+    huggingface: true
+    huggingface_limit_per_keyword: 20
+    derive_from_papers: true
+
+  # === AlphaXiv 可选增强源 ===
+  alphaxiv:
+    enabled: false
+    endpoint: ""
+
   # === 评分配置 ===
   scoring:
     base_score: 1.5
@@ -116,11 +136,26 @@ research:
       bonus_points: 5.0
       expert_authors: []
 
+  # === Read-first 排序配置 ===
+  ranking:
+    enabled: true
+    weights:
+      topical_relevance: 0.40
+      methodology_quality: 0.25
+      reproducibility: 0.25
+      recency: 0.10
+
   # === 深度分析配置 ===
   deep_analysis:
     enabled: true
     min_score: 30
     pdf_parser: "mineru"
+    max_papers_per_run: 10
+
+  # === 深度研究队列 ===
+  deep_research:
+    enabled: true
+    min_read_first_score: 70
     max_papers_per_run: 10
 
   # === 关键词趋势追踪 ===
@@ -131,6 +166,7 @@ research:
 website:
   sections:
     papers: true
+    surveys: true
     datasets: true
     tools: false
     resources: false
@@ -138,6 +174,7 @@ website:
   nav:
     - home
     - papers
+    - surveys
     - trends
     - datasets
   features:

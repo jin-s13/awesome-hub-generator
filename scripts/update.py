@@ -135,22 +135,21 @@ def fetch_from_hf(config: dict, search_days: int) -> List[Dict]:
 
 def collect_sources_to_pool(config: dict, pool, search_days: int):
     """Step 1: 从所有数据源收集论文到 candidate 池。"""
-    sources_config = config.get("research", {}).get("sources", {})
+    from scripts.paper_sources import collect_paper_sources
 
-    # arXiv
-    if sources_config.get("arxiv", True):
-        papers = fetch_from_arxiv(config, search_days)
-        if papers:
-            added = pool.add_batch(papers, source="arxiv")
-            logger.info(f"arXiv: +{added} candidates")
+    result = collect_paper_sources(config, search_days=search_days, max_results=200)
+    for name, summary in result.get("sources", {}).items():
+        if not summary.get("enabled"):
+            continue
+        if summary.get("error"):
+            logger.warning("%s source failed: %s", name, summary["error"])
+        else:
+            logger.info("%s source: %s papers", name, summary.get("count", 0))
 
-    # HuggingFace
-    if sources_config.get("huggingface_daily", False) or sources_config.get("huggingface_trending", False):
-        papers = fetch_from_hf(config, search_days)
-        if papers:
-            # HF 论文可能来自 daily 和 trending，分别标记
-            added = pool.add_batch(papers, source="hf")
-            logger.info(f"HuggingFace: +{added} candidates")
+    papers = result.get("papers", [])
+    if papers:
+        added = pool.add_batch(papers, source="unified-sources")
+        logger.info(f"Unified sources: +{added} candidates from {len(papers)} merged papers")
 
 
 # === Step 2: Candidate → 展示池晋升 ===
@@ -327,6 +326,64 @@ def enrich_papers_step(config: dict, papers_yaml: Path):
     logger.info(f"Metadata enrichment done ({len(papers)} papers)")
 
 
+# === Step 4.2: PaperRank-lite ===
+
+def rank_papers_step(config: dict, papers_yaml: Path):
+    """Add explainable read-first score components to papers.yaml."""
+    ranking_config = config.get("research", {}).get("ranking", {})
+    if ranking_config.get("enabled", True) is False:
+        logger.info("PaperRank-lite disabled, skipping")
+        return
+
+    from scripts.paper_rank import enrich_paper_rank_scores
+
+    updated = enrich_paper_rank_scores(papers_yaml, config)
+    logger.info(f"PaperRank-lite enriched {updated} papers")
+
+
+# === Step 4.3: Deep research queue ===
+
+def deep_research_queue_step(config: dict, data_dir: Path):
+    """Queue high read-first papers for deep research."""
+    from scripts.deep_research_queue import build_deep_research_queue
+
+    resource_dir = Path(os.environ.get("HUB_RESOURCE_DIR", str(data_dir.parent / "resource")))
+    queued = build_deep_research_queue(data_dir, config, resource_dir=resource_dir)
+    logger.info(f"Deep research queued {queued} papers")
+
+
+# === Step 4.4: Literature surveys ===
+
+def literature_surveys_step(config: dict, data_dir: Path):
+    """Generate taxonomy-driven survey data."""
+    from scripts.literature_survey import build_literature_surveys
+
+    topics = build_literature_surveys(data_dir, config)
+    logger.info(f"Literature surveys generated {topics} topics")
+
+
+# === Step 4.5: Datasets ===
+
+def sync_datasets_step(config: dict, data_dir: Path):
+    """Sync datasets from HF datasets and benchmark/dataset papers."""
+    sections = config.get("website", {}).get("sections", {})
+    if not sections.get("datasets", True):
+        return
+    try:
+        from scripts.dataset_sources import sync_datasets
+
+        result = sync_datasets(data_dir, config)
+        if result.get("total_added", 0):
+            logger.info(
+                "Datasets: +%s (HF candidates=%s, paper-derived=%s)",
+                result["total_added"],
+                result["hf_datasets"],
+                result["derived_from_papers"],
+            )
+    except Exception as e:
+        logger.warning(f"Dataset sync failed (non-fatal): {e}")
+
+
 # === Step 5: Teaser 图 ===
 
 def fetch_teasers_step(config: dict, data_dir: Path):
@@ -399,10 +456,11 @@ def main():
     data_dir.mkdir(parents=True, exist_ok=True)
     assets_dir.mkdir(parents=True, exist_ok=True)
     resource_dir.mkdir(parents=True, exist_ok=True)
-    for empty_file in ("papers.yaml", "resources.yaml", "datasets.yaml", "tools.yaml"):
+    for empty_file in ("papers.yaml", "resources.yaml", "datasets.yaml", "tools.yaml", "surveys.yaml", "research_runs.yaml"):
         f = data_dir / empty_file
         if not f.exists():
-            f.write_text("[]\n", encoding="utf-8")
+            empty = "topics: []\n" if empty_file == "surveys.yaml" else "runs: []\n" if empty_file == "research_runs.yaml" else "[]\n"
+            f.write_text(empty, encoding="utf-8")
     papers_yaml = data_dir / "papers.yaml"
 
     os.environ["HUB_DATA_DIR"] = str(data_dir)
@@ -477,6 +535,18 @@ def main():
         # Step 4: 元数据富化
         logger.info("--- Step 4: Metadata enrichment ---")
         enrich_papers_step(config, papers_yaml)
+
+        logger.info("--- Step 4.2: PaperRank-lite ---")
+        rank_papers_step(config, papers_yaml)
+
+        logger.info("--- Step 4.3: Deep research queue ---")
+        deep_research_queue_step(config, data_dir)
+
+        logger.info("--- Step 4.4: Literature surveys ---")
+        literature_surveys_step(config, data_dir)
+
+        logger.info("--- Step 4.5: Datasets ---")
+        sync_datasets_step(config, data_dir)
 
         # Step 5: Teaser 图
         if not args.skip_teasers:

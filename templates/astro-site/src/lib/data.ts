@@ -5,8 +5,28 @@ import YAML from 'yaml';
 export type LinkMap = Record<string, string>;
 export type SourceRef = { repo: string; category?: string };
 
+export type ScoreEvidence = {
+  source?: string;
+  field?: string;
+  detail?: string;
+};
+
+export type ScoreComponent = {
+  value: number;
+  available?: boolean;
+  confidence?: string;
+  explanation?: string;
+  explanation_zh?: string;
+  evidence?: ScoreEvidence[];
+};
+
 export type ScoreInfo = {
   total: number;
+  read_first_score?: number;
+  components?: Record<string, ScoreComponent>;
+  applied_weights?: Record<string, number>;
+  ranking_profile?: string;
+  warnings?: string[];
   keyword_scores?: Record<string, number>;
   author_bonus?: number;
   passing_score?: number;
@@ -64,6 +84,34 @@ export type Resource = {
   notes?: string;
 };
 
+export type SurveyPaperRef = {
+  id: string;
+  title: string;
+  year?: number;
+  score?: number;
+  url?: string;
+};
+
+export type SurveyTopic = {
+  id: string;
+  label: string;
+  label_zh?: string;
+  description?: string;
+  description_zh?: string;
+  paper_count: number;
+  top_tags: string[];
+  component_averages?: Record<string, number>;
+  top_papers: SurveyPaperRef[];
+  related_work_outline: string[];
+  related_work_outline_zh?: string[];
+};
+
+export type SurveyIndex = {
+  schema_version?: string;
+  generated_at?: string;
+  topics: SurveyTopic[];
+};
+
 function loadYaml<T>(relativePath: string): T[] {
   const file = path.join(process.cwd(), relativePath);
   if (!fs.existsSync(file)) {
@@ -72,6 +120,16 @@ function loadYaml<T>(relativePath: string): T[] {
   const raw = fs.readFileSync(file, 'utf-8');
   const parsed = YAML.parse(raw);
   return Array.isArray(parsed) ? parsed as T[] : [];
+}
+
+function loadYamlObject<T>(relativePath: string, fallback: T): T {
+  const file = path.join(process.cwd(), relativePath);
+  if (!fs.existsSync(file)) {
+    return fallback;
+  }
+  const raw = fs.readFileSync(file, 'utf-8');
+  const parsed = YAML.parse(raw);
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as T : fallback;
 }
 
 export function getPapers(): Paper[] {
@@ -109,6 +167,11 @@ export function getTools(): Resource[] {
 
 export function getResources(): Resource[] {
   return loadYaml<Resource>('data/resources.yaml').sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+}
+
+export function getSurveys(): SurveyTopic[] {
+  const surveyIndex = loadYamlObject<SurveyIndex>('data/surveys.yaml', { topics: [] });
+  return (surveyIndex.topics || []).sort((a, b) => b.paper_count - a.paper_count || a.label.localeCompare(b.label));
 }
 
 export function uniq<T>(arr: T[]): T[] {

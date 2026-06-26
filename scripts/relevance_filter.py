@@ -130,7 +130,11 @@ A paper is RELEVANT only if its CORE CONTRIBUTION matches any of:
 {include_items}
 
 A paper is NOT RELEVANT if it is primarily about:
-{exclude_items}"""
+{exclude_items}
+
+Adjacent terminology alone is not enough. If the paper merely mentions the topic,
+uses a neighboring domain, or lacks a direct contribution to the configured scope,
+mark relevant=false."""
     else:
         criteria_section = ""
 
@@ -154,7 +158,7 @@ Return ONLY valid JSON, no other text."""
         content = get_default_cache().get_or_call_llm(
             task_type="relevance_check",
             model=MODEL_NAME,
-            prompt_version="relevance_v1",
+            prompt_version="relevance_v2",
             paper_identity=paper_identity,
             abstract=abstract,
             criteria={

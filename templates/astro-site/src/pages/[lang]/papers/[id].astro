@@ -26,13 +26,113 @@ const displayReasoning = (lang === 'zh' && paper.reasoning_cn) ? paper.reasoning
 const displayAnalysis = (lang === 'zh' && paper.analysis_cn) ? paper.analysis_cn : (paper.analysis || null);
 
 const linkEntries = Object.entries(paper.links || {}).filter(([, value]) => value);
+const linkLabelMap: Record<string, { en: string; zh: string }> = {
+  paper: { en: 'Paper', zh: '论文' },
+  pdf: { en: 'PDF', zh: 'PDF' },
+  code: { en: 'Code', zh: '代码' },
+  github: { en: 'GitHub', zh: 'GitHub' },
+  repo: { en: 'Repo', zh: '仓库' },
+  dataset: { en: 'Dataset', zh: '数据集' },
+  data: { en: 'Data', zh: '数据' },
+  huggingface: { en: 'Hugging Face', zh: 'Hugging Face' },
+  project: { en: 'Project', zh: '项目' },
+  demo: { en: 'Demo', zh: '演示' },
+};
+function linkLabel(key: string) {
+  const normalized = key.toLowerCase();
+  const known = linkLabelMap[normalized];
+  if (known) return known[lang];
+  return key
+    .replace(/[_-]/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
 const score = paper.score;
 const analysis = displayAnalysis;
-const scoreLevel = score?.total != null
-  ? score.total >= 80 ? 'high'
-    : score.total >= 60 ? 'medium'
+const displayScore = score?.read_first_score ?? score?.total;
+const scoreLevel = displayScore != null
+  ? displayScore >= 80 ? 'high'
+    : displayScore >= 60 ? 'medium'
     : 'low'
   : null;
+const scoreComponentLabels = {
+  topical_relevance: { en: 'Topical relevance', zh: '主题相关性' },
+  methodology_quality: { en: 'Methodology quality', zh: '方法质量' },
+  reproducibility: { en: 'Reproducibility', zh: '可复现性' },
+  recency: { en: 'Recency', zh: '近期性' },
+};
+const markerLabels: Record<string, string> = {
+  ablation: '消融',
+  analysis: '分析',
+  artifact: '工件',
+  baseline: '基线',
+  benchmark: '基准',
+  checkpoint: '检查点',
+  code: '代码',
+  dataset: '数据集',
+  evaluation: '评估',
+  experiment: '实验',
+  github: 'GitHub',
+  metric: '指标',
+  'open source': '开源',
+  repository: '仓库',
+  reproduce: '复现',
+  result: '结果',
+  validation: '验证',
+};
+function localizedComponentExplanation(component: { explanation?: string; explanation_zh?: string }, currentLang: Lang) {
+  return currentLang === 'zh'
+    ? (component.explanation_zh || component.explanation || '')
+    : (component.explanation || component.explanation_zh || '');
+}
+function yesNo(value: string) {
+  return value === 'True' ? '有' : value === 'False' ? '无' : value;
+}
+function formatMarkers(value: string) {
+  if (!value || value === 'none') return '无';
+  return value
+    .split(',')
+    .filter(Boolean)
+    .map((marker) => markerLabels[marker] || marker)
+    .join('、');
+}
+function formatEvidenceDetail(item: { source?: string; field?: string; detail?: string }, currentLang: Lang) {
+  const detail = item.detail || item.field || item.source || '';
+  if (currentLang !== 'zh') return detail;
+  if (!detail) return '';
+  if (item.field === 'score.keyword_scores') {
+    return `关键词：${detail.split(',').filter(Boolean).join('、')}`;
+  }
+  if (item.field === 'year') {
+    return detail === 'missing' ? '年份：缺失' : `年份：${detail}`;
+  }
+  if (detail.startsWith('matched=')) {
+    return `匹配关键词数：${detail.replace('matched=', '')}`;
+  }
+  if (detail.startsWith('markers=')) {
+    return `命中信号：${formatMarkers(detail.replace('markers=', ''))}`;
+  }
+  if (detail.includes('pdf=') || detail.includes('code=') || detail.includes('dataset=')) {
+    const parts = Object.fromEntries(
+      detail.split(';').map((part) => {
+        const [key, value] = part.trim().split('=');
+        return [key, value || ''];
+      })
+    );
+    return [
+      `论文：${yesNo(parts.pdf || '')}`,
+      `代码：${yesNo(parts.code || '')}`,
+      `数据：${yesNo(parts.dataset || '')}`,
+      `命中信号：${formatMarkers(parts.markers || '')}`,
+    ].join('；');
+  }
+  return detail === 'missing' ? '缺失' : detail;
+}
+const scoreComponentEntries = score?.components
+  ? Object.entries(score.components)
+      .filter(([, component]) => component && component.available !== false && typeof component.value === 'number')
+      .sort(([, a], [, b]) => b.value - a.value)
+  : [];
+const maxComponentScore = Math.max(...scoreComponentEntries.map(([, component]) => component.value), 1);
 const keywordEntries = score?.keyword_scores
   ? Object.entries(score.keyword_scores).sort(([, a], [, b]) => b - a)
   : [];
@@ -48,7 +148,7 @@ const typeLabel = paperTypeLabel(paper);
       <h1>{displayTitle}</h1>
       <div class="detail-meta">
         <span>{paper.venue} {paper.year}</span>
-        {scoreLevel && <span class={`score-badge score-${scoreLevel}`}>{score.total}</span>}
+        {scoreLevel && <span class={`score-badge score-${scoreLevel}`}>{displayScore}</span>}
         <span class="detail-category">{typeLabel}</span>
       </div>
     </div>
@@ -64,6 +164,50 @@ const typeLabel = paperTypeLabel(paper);
       <div class="detail-reasoning">
         <h2>{_t('paper.reasoning')}</h2>
         <p>{displayReasoning}</p>
+      </div>
+    )}
+
+    {scoreComponentEntries.length > 0 && (
+      <div class="detail-score-components">
+        <h2>{lang === 'zh' ? 'Read-first 评分解释' : 'Read-first score'}</h2>
+        <p class="score-summary">
+          {lang === 'zh'
+            ? `综合优先阅读分 ${displayScore}，由主题、方法、可复现性和近期性加权得到。`
+            : `Read-first score ${displayScore}, weighted from topical fit, method quality, reproducibility, and recency.`}
+          {score?.total != null && score?.read_first_score != null && score.total !== score.read_first_score && (
+            <span>{lang === 'zh' ? ` 原始总分保留为 ${score.total}。` : ` Original total remains ${score.total}.`}</span>
+          )}
+        </p>
+        <div class="score-component-bars">
+          {scoreComponentEntries.map(([key, component]) => {
+            const label = scoreComponentLabels[key as keyof typeof scoreComponentLabels]?.[lang] || key.replace(/_/g, ' ');
+            const weight = score?.applied_weights?.[key];
+            const evidence = (component.evidence || []).slice(0, 2);
+            const explanation = localizedComponentExplanation(component, lang);
+            const evidenceDetails = evidence.map((item) => formatEvidenceDetail(item, lang)).filter(Boolean);
+            return (
+              <div class="score-component-row">
+                <div class="score-component-label">
+                  <span>{label}</span>
+                  {weight != null && <small>{Math.round(weight * 100)}%</small>}
+                </div>
+                <div class="score-component-track">
+                  <div class="score-component-fill" style={`width: ${(component.value / maxComponentScore) * 100}%`}></div>
+                </div>
+                <span class="score-component-value">{component.value}</span>
+                <p class="score-component-note">
+                  {explanation}
+                  {evidenceDetails.length > 0 && (
+                    <span> {evidenceDetails.join(' · ')}</span>
+                  )}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+        {score?.warnings && score.warnings.length > 0 && (
+          <p class="score-warnings">{score.warnings.join(' · ')}</p>
+        )}
       </div>
     )}
 
@@ -134,7 +278,7 @@ const typeLabel = paperTypeLabel(paper);
     <div class="detail-links">
       <h2>{_t('paper.resources')}</h2>
       <div class="link-row">
-        {linkEntries.map(([key, value]) => <a href={value} target="_blank" rel="noreferrer">{key}</a>)}
+        {linkEntries.map(([key, value]) => <a href={value} target="_blank" rel="noreferrer">{linkLabel(key)}</a>)}
       </div>
     </div>
 
@@ -169,12 +313,12 @@ const typeLabel = paperTypeLabel(paper);
     font-size: 12px;
   }
 
-  .detail-tldr, .detail-reasoning, .detail-keywords, .detail-analysis, .detail-links, .detail-tags {
+  .detail-tldr, .detail-reasoning, .detail-score-components, .detail-keywords, .detail-analysis, .detail-links, .detail-tags {
     margin-bottom: 32px;
     padding-bottom: 24px;
     border-bottom: 1px solid var(--color-border);
   }
-  .detail-tldr:last-child, .detail-reasoning:last-child, .detail-keywords:last-child,
+  .detail-tldr:last-child, .detail-reasoning:last-child, .detail-score-components:last-child, .detail-keywords:last-child,
   .detail-analysis:last-child, .detail-links:last-child, .detail-tags:last-child {
     border-bottom: none;
   }
@@ -191,6 +335,65 @@ const typeLabel = paperTypeLabel(paper);
   .analysis-section { margin-bottom: 20px; }
   .analysis-section ul { padding-left: 20px; }
   .analysis-section li { font-size: 14px; line-height: 1.6; color: var(--color-text-secondary); margin-bottom: 4px; }
+
+  .score-summary, .score-warnings {
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--color-text-secondary);
+    margin-bottom: 12px;
+  }
+  .score-warnings {
+    color: #b45309;
+    margin-top: 12px;
+    margin-bottom: 0;
+  }
+  .score-component-bars { display: flex; flex-direction: column; gap: 12px; }
+  .score-component-row {
+    display: grid;
+    grid-template-columns: minmax(140px, 180px) minmax(120px, 1fr) minmax(32px, auto);
+    gap: 10px 12px;
+    align-items: center;
+  }
+  .score-component-label {
+    display: flex;
+    justify-content: flex-end;
+    align-items: baseline;
+    gap: 6px;
+    color: var(--color-text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    text-align: right;
+  }
+  .score-component-label small {
+    color: var(--color-text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+  .score-component-track {
+    height: 12px;
+    background: var(--color-surface);
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+  }
+  .score-component-fill {
+    height: 100%;
+    background: var(--color-primary);
+    border-radius: 6px;
+  }
+  .score-component-value {
+    color: var(--color-text);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .score-component-note {
+    grid-column: 2 / 4;
+    margin: -4px 0 0;
+    color: var(--color-text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+  }
 
   .keyword-bars { display: flex; flex-direction: column; gap: 8px; }
   .keyword-bar-row {
@@ -225,5 +428,19 @@ const typeLabel = paperTypeLabel(paper);
     font-family: var(--font-mono);
     min-width: 24px;
     color: var(--color-text);
+  }
+
+  @media (max-width: 640px) {
+    .detail-meta { flex-wrap: wrap; }
+    .score-component-row {
+      grid-template-columns: 1fr minmax(28px, auto);
+    }
+    .score-component-label {
+      justify-content: flex-start;
+      text-align: left;
+      grid-column: 1 / 3;
+    }
+    .score-component-track { grid-column: 1; }
+    .score-component-note { grid-column: 1 / 3; }
   }
 </style>

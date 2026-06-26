@@ -144,6 +144,21 @@ research:
     arxiv: true
     huggingface_daily: true
     huggingface_trending: true
+    huggingface_datasets: true
+    upstream_awesome: true
+    alphaxiv: false             # 可选增强源；默认关闭，无需额外 key
+
+  # === 数据集发现 ===
+  datasets:
+    huggingface: true
+    huggingface_limit_per_keyword: 20
+    derive_from_papers: true
+
+  # === AlphaXiv 可选增强源 ===
+  # 默认不启用；如有兼容 JSON endpoint，可配置 endpoint，无需影响 arXiv/HF/awesome 主流程
+  alphaxiv:
+    enabled: false
+    endpoint: ""
 
   # === 自动发现 GitHub 已有 awesome 项目 ===
   auto_discover:
@@ -187,12 +202,29 @@ research:
       bonus_points: 5.0
       expert_authors: []
 
+  # === Read-first 排序配置 ===
+  # 在保留 score.total 的同时，生成可解释的 score.read_first_score
+  ranking:
+    enabled: true
+    weights:
+      topical_relevance: 0.40     # 与研究方向/关键词/分类体系的贴合度
+      methodology_quality: 0.25   # 方法、实验、结果等技术信号
+      reproducibility: 0.25       # 代码、数据、项目页、benchmark 等复现信号
+      recency: 0.10               # 近期论文加权
+
   # === 深度分析配置 ===
   deep_analysis:
     enabled: true               # 是否对高分论文做 PDF 深度分析
     min_score: 30               # 最低评分门槛
     pdf_parser: "mineru"       # pymupdf（本地）或 mineru（云端）
     max_papers_per_run: 10      # 每次运行最多分析多少篇
+
+  # === 深度研究队列 ===
+  # 对 read_first_score 高的论文生成 research_runs.yaml 和 resource/{paper}/research.md
+  deep_research:
+    enabled: true
+    min_read_first_score: 70
+    max_papers_per_run: 10
 
   # === 元数据富化配置 ===
   enrichment:
@@ -232,6 +264,7 @@ research:
 website:
   sections:
     papers: true
+    surveys: true
     datasets: true
     tools: true
   nav:

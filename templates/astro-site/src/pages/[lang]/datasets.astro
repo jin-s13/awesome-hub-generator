@@ -14,7 +14,6 @@ const lang = Astro.params.lang as Lang;
 const _t = useTranslations(lang);
 
 const datasets = getDatasets();
-const categories = uniq(datasets.map((d) => d.category || 'Dataset')).sort();
 const years = uniq(datasets.map((d) => d.year).filter(Boolean) as number[]).sort((a, b) => b - a);
 ---
 <Base title={`${_t('pages.datasets.title')} · {{PROJECT_NAME}}`} lang={lang}>
@@ -23,7 +22,7 @@ const years = uniq(datasets.map((d) => d.year).filter(Boolean) as number[]).sort
     <h1>{_t('pages.datasets.title')}</h1>
     <p>{_t('pages.datasets.description')}</p>
   </section>
-  <FilterBar categories={categories} years={years} placeholder={_t('filter.search') + ' by dataset, representation, task, source...'} lang={lang} />
+  <FilterBar years={years} placeholder={_t('filter.search') + ' by dataset, representation, task, source...'} lang={lang} />
   <div class="card-grid resource-grid">
     {datasets.map((item) => <ResourceCard item={item} lang={lang} />)}
   </div>

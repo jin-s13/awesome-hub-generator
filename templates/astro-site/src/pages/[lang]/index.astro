@@ -22,7 +22,7 @@ const showDatasets = {{ENABLE_DATASETS}};
 const showTools = {{ENABLE_TOOLS}};
 const showResources = {{ENABLE_RESOURCES}};
 const featured = papers
-  .sort((a, b) => (b.score?.total || 0) - (a.score?.total || 0))
+  .sort((a, b) => (b.score?.read_first_score ?? b.score?.total ?? 0) - (a.score?.read_first_score ?? a.score?.total ?? 0))
   .slice(0, 6);
 ---
 <Base title="{{PROJECT_NAME}}" lang={lang}>

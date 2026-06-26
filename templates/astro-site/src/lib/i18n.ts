@@ -9,6 +9,8 @@ const translations: Record<string, Record<Lang, string>> = {
   // Base.astro - Nav
   'nav.home': { en: 'Home', zh: '首页' },
   'nav.papers': { en: 'Papers', zh: '论文' },
+  'nav.analysis': { en: 'Analysis', zh: '分析' },
+  'nav.surveys': { en: 'Analysis', zh: '分析' },
   'nav.trends': { en: 'Trends', zh: '趋势' },
   'nav.datasets': { en: 'Datasets', zh: '数据集' },
   'nav.tools': { en: 'Tools', zh: '工具' },
@@ -50,6 +52,22 @@ const translations: Record<string, Record<Lang, string>> = {
   'pages.papers.description': {
     en: 'Automatically collected and categorized papers from arXiv.',
     zh: '从 arXiv 自动收集并分类的论文。',
+  },
+
+  // analysis.astro
+  'pages.analysis.eyebrow': { en: 'Aggregate analysis', zh: '汇总分析' },
+  'pages.analysis.title': { en: 'Research Analysis', zh: '研究分析' },
+  'pages.analysis.description': {
+    en: 'Cross-paper synthesis of shared research patterns, differences, mainstream directions, and trend evolution.',
+    zh: '跨论文归纳研究共性、关键差异、主流方向与趋势演进。',
+  },
+
+  // surveys.astro legacy keys
+  'pages.surveys.eyebrow': { en: 'Aggregate analysis', zh: '汇总分析' },
+  'pages.surveys.title': { en: 'Research Analysis', zh: '研究分析' },
+  'pages.surveys.description': {
+    en: 'Aggregated topic summaries, scoring patterns, and related-work outlines generated from the research index.',
+    zh: '从研究索引生成的主题汇总、评分模式和相关工作提纲。',
   },
 
   // datasets.astro

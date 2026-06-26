@@ -6,8 +6,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from scripts.update import (
+    collect_sources_to_pool,
     load_config,
     load_papers_yaml,
+    rank_papers_step,
     save_papers_yaml,
 )
 
@@ -63,6 +65,96 @@ class TestSavePapersYaml:
         assert len(loaded) == 2
         assert loaded[0]["id"] == "p1"
         assert loaded[0]["score"]["total"] == 85.0
+
+
+class TestRankPapersStep:
+    """Test PaperRank-lite step wiring."""
+
+    def test_calls_rank_enricher_by_default(self, tmp_path, monkeypatch):
+        papers_yaml = tmp_path / "papers.yaml"
+        papers_yaml.write_text("[]\n", encoding="utf-8")
+        seen = {}
+
+        def fake_enrich(path, config):
+            seen["path"] = path
+            seen["config"] = config
+            return 0
+
+        monkeypatch.setattr("scripts.paper_rank.enrich_paper_rank_scores", fake_enrich)
+
+        rank_papers_step({"research": {"keywords": ["CAD"]}}, papers_yaml)
+
+        assert seen["path"] == papers_yaml
+        assert seen["config"]["research"]["keywords"] == ["CAD"]
+
+    def test_skips_when_disabled(self, tmp_path, monkeypatch):
+        papers_yaml = tmp_path / "papers.yaml"
+        papers_yaml.write_text("[]\n", encoding="utf-8")
+        called = False
+
+        def fake_enrich(path, config):
+            nonlocal called
+            called = True
+            return 0
+
+        monkeypatch.setattr("scripts.paper_rank.enrich_paper_rank_scores", fake_enrich)
+
+        rank_papers_step({"research": {"ranking": {"enabled": False}}}, papers_yaml)
+
+        assert called is False
+
+
+class TestCollectSourcesToPool:
+    """Test update.py uses the unified paper source aggregator."""
+
+    def test_adds_unified_source_results_to_candidate_pool(self, monkeypatch):
+        seen = {}
+
+        def fake_collect(config, search_days=None, max_results=500):
+            seen["config"] = config
+            seen["search_days"] = search_days
+            return {
+                "papers": [
+                    {
+                        "id": "paper-1",
+                        "title": "Unified Search Paper",
+                        "links": {"paper": "https://arxiv.org/abs/2601.00001"},
+                    }
+                ],
+                "sources": {
+                    "arxiv": {"enabled": True, "count": 1},
+                    "huggingface": {"enabled": False, "count": 0},
+                    "awesome": {"enabled": False, "count": 0},
+                    "alphaxiv": {"enabled": False, "count": 0},
+                },
+            }
+
+        class FakePool:
+            def __init__(self):
+                self.calls = []
+
+            def add_batch(self, papers, source="unknown"):
+                self.calls.append((papers, source))
+                return len(papers)
+
+        monkeypatch.setattr("scripts.paper_sources.collect_paper_sources", fake_collect)
+
+        pool = FakePool()
+        collect_sources_to_pool({"research": {"sources": {"arxiv": True}}}, pool, search_days=14)
+
+        assert seen["search_days"] == 14
+        assert pool.calls == [
+            (
+                [
+                    {
+                        "id": "paper-1",
+                        "title": "Unified Search Paper",
+                        "links": {"paper": "https://arxiv.org/abs/2601.00001"},
+                    }
+                ],
+                "unified-sources",
+            )
+        ]
 
 
 class TestMainLogic:

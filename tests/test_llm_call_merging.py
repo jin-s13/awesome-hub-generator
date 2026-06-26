@@ -136,3 +136,69 @@ def test_paper_needs_chinese_fields_when_only_tldr_or_analysis_is_missing():
     }
 
     assert gi.paper_needs_chinese_fields(paper)
+
+
+def test_deep_analysis_prompt_uses_researcher_style_extraction(monkeypatch):
+    from scripts import generate_interpretations as gi
+
+    seen = {}
+
+    def fake_llm_chat(messages, *args, **kwargs):
+        seen["prompt"] = messages[0]["content"]
+        return json.dumps(
+            {
+                "innovations": ["Builds a trace-based world model"],
+                "methodology": "Trains on extracted interaction traces.",
+                "key_results": "Improves long-horizon prediction.",
+                "limitations": ["Trace extraction can miss fine-grained dynamics."],
+            }
+        )
+
+    monkeypatch.setattr(gi, "_llm_chat", fake_llm_chat)
+
+    result = gi.generate_deep_analysis(
+        "Trace World Model",
+        "We train a world model on interaction traces and evaluate planning.",
+    )
+
+    prompt = seen["prompt"]
+    assert result["innovations"] == ["Builds a trace-based world model"]
+    assert "main claims" in prompt
+    assert "supporting evidence" in prompt
+    assert "methodology details" in prompt
+    assert "experimental results" in prompt
+    assert "stated limitations" in prompt
+    assert "Do not invent" in prompt
+
+
+def test_tldr_reasoning_prompt_asks_for_evidence_bound_scoring(monkeypatch):
+    from scripts import generate_interpretations as gi
+
+    seen = {}
+
+    def fake_llm_chat(messages, *args, **kwargs):
+        seen["prompt"] = messages[0]["content"]
+        return json.dumps(
+            {
+                "tldr": "Learns trace-based world models for planning.",
+                "reasoning": "Strong method evidence but limited code signals.",
+                "has_real_world": True,
+                "keyword_scores": {"world model": 9},
+            }
+        )
+
+    monkeypatch.setattr(gi, "_llm_chat", fake_llm_chat)
+
+    result = gi.generate_tldr_and_reasoning(
+        "Trace World Model",
+        "We train a world model on interaction traces and evaluate planning.",
+        ["world model"],
+    )
+
+    prompt = seen["prompt"]
+    assert result["keyword_scores"]["world model"] == 9
+    assert "core claims" in prompt
+    assert "supporting evidence" in prompt
+    assert "methodology" in prompt
+    assert "limitations" in prompt
+    assert "Score only what is supported" in prompt

@@ -4,8 +4,8 @@
 
 **awesome-hub-generator** 是一个端到端的 awesome 页面生成器**工具**。你只需要配置研究方向关键词，它就会：
 
-1. **全量构建**：从 arXiv 搜索历史论文，LLM 评分+深度分析，生成完整的 Astro 静态网站
-2. **每日更新**：定时检查 arXiv 新论文，自动去重合并到页面中
+1. **全量构建**：从 arXiv / Hugging Face / 上游 awesome 源搜索历史论文，LLM 评分+深度分析，生成完整的 Astro 静态网站
+2. **每日更新**：定时检查 arXiv / Hugging Face 新论文与数据集，自动去重合并到页面中
 3. **自动部署**：通过 GitHub Actions 构建并部署到 GitHub Pages
 
 > **架构说明**：本仓库是通用生成器工具，不包含 GitHub Actions 配置。GHA 工作流模板放在 `templates/workflows/` 下，供下游站点仓库（如 `awesome-cad-hub`）使用。
@@ -200,7 +200,26 @@ awesome-cad-hub/                    ← 下游站点仓库（独立部署）
 
 ### 添加 datasets 和 tools
 
-除了自动生成的论文，你还可以在站点工作区的 `data/datasets.yaml` 和 `data/tools.yaml` 中手动维护数据集和工具列表。下游站点仓库中默认是 `.local/data/...`；直接在生成器仓库根目录运行时默认是 `.local/{project-slug}/data/...`。注意 `.local/` 已 gitignore，如需持久化请通过 `awesome.yaml` 的 `auto_discover` 配置自动发现上游项目。
+除了自动生成的论文，你还可以在站点工作区的 `data/datasets.yaml` 和 `data/tools.yaml` 中手动维护数据集和工具列表。下游站点仓库中默认是 `.local/data/...`；直接在生成器仓库根目录运行时默认是 `.local/{project-slug}/data/...`。注意 `.local/` 已 gitignore，如需持久化请通过 `awesome.yaml` 的 `auto_discover` 和 `research.datasets` 配置自动发现上游项目。
+
+`datasets.yaml` 会自动合并三类来源：Hugging Face Datasets 关键词检索、上游 awesome README 的 dataset section、以及 `papers.yaml` 中被分类为 `benchmark` 或明确提到 dataset 的论文。手动已有条目会优先保留，自动条目按名称和链接去重。
+
+```yaml
+research:
+  sources:
+    huggingface_datasets: true
+    upstream_awesome: true
+    alphaxiv: false
+  datasets:
+    huggingface: true
+    huggingface_limit_per_keyword: 20
+    derive_from_papers: true
+  alphaxiv:
+    enabled: false
+    endpoint: ""
+```
+
+论文搜索会先进入统一来源层：arXiv、Hugging Face Daily/Trending、上游 awesome 项目和可选 AlphaXiv 增强源会被规范化、去重、合并 provenance，再进入候选池或展示池。AlphaXiv 默认关闭；不配置 endpoint 时不会发请求，也不需要额外 key。
 
 ### 调整评分策略
 
@@ -216,7 +235,29 @@ research:
       enabled: false
       bonus_points: 5.0
       expert_authors: []
+
+  ranking:
+    enabled: true              # 生成可解释的 read-first 排序分
+    weights:
+      topical_relevance: 0.40
+      methodology_quality: 0.25
+      reproducibility: 0.25
+      recency: 0.10
 ```
+
+`scoring` 继续用于旧的关键词总分和过滤；`ranking` 会保留原始 `score.total`，额外写入 `score.read_first_score`、组件分和权重，用于首页排序、论文卡片和详情页解释。
+
+高 `read_first_score` 论文还会进入深度研究队列：
+
+```yaml
+research:
+  deep_research:
+    enabled: true
+    min_read_first_score: 70
+    max_papers_per_run: 10
+```
+
+该步骤会生成 `data/research_runs.yaml` 和 `resource/{paper_id}/research.md` 研究占位报告；`data/surveys.yaml` 会按 taxonomy、paper_type、tags 和评分组件自动生成文献综述骨架，供 `/surveys` 页面展示。
 
 ### 调整深度分析
 

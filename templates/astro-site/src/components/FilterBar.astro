@@ -11,13 +11,15 @@ const resultTemplate = _t('filter.resultCount');
     <span>{_t('filter.search')}</span>
     <input id="searchInput" type="search" placeholder={placeholder} />
   </label>
-  <label>
-    <span>{_t('filter.category')}</span>
-    <select id="categorySelect">
-      <option value="">{_t('filter.allCategories')}</option>
-      {categories.map((c: string) => <option value={c}>{c}</option>)}
-    </select>
-  </label>
+  {categories.length > 0 && (
+    <label>
+      <span>{_t('filter.category')}</span>
+      <select id="categorySelect">
+        <option value="">{_t('filter.allCategories')}</option>
+        {categories.map((c: string) => <option value={c}>{c}</option>)}
+      </select>
+    </label>
+  )}
   {years.length > 0 && (
     <label>
       <span>{_t('filter.year')}</span>

@@ -278,6 +278,64 @@ def prune_disabled_section_data(data_dir: Path, config: dict) -> None:
             print(f"[build] 已清空禁用 section 数据: {filename}")
 
 
+def derive_datasets_from_benchmark_papers(data_dir: Path, config: dict) -> int:
+    """Backward-compatible wrapper for tests and callers."""
+    import copy
+    from dataset_sources import sync_datasets
+
+    local_config = copy.deepcopy(config)
+    local_config.setdefault("research", {}).setdefault("datasets", {})["huggingface"] = False
+    result = sync_datasets(data_dir, local_config)
+    return result.get("derived_from_papers", 0)
+
+
+def sync_datasets_step(data_dir: Path, config: dict) -> None:
+    """Populate datasets.yaml from HF datasets and relevant papers."""
+    if not section_enabled(config, "datasets"):
+        return
+    try:
+        from dataset_sources import sync_datasets
+
+        result = sync_datasets(data_dir, config)
+        if result.get("total_added", 0):
+            print(
+                "[build] datasets: "
+                f"+{result['total_added']} "
+                f"(HF candidates={result['hf_datasets']}, paper-derived={result['derived_from_papers']})"
+            )
+    except Exception as e:
+        print(f"[build] datasets 同步失败（非致命）: {e}")
+
+
+def rank_papers_step(data_dir: Path, config: dict) -> None:
+    """Add PaperRank-lite explainable read-first scores to papers.yaml."""
+    ranking_config = config.get("research", {}).get("ranking", {})
+    if ranking_config.get("enabled", True) is False:
+        print("[build] PaperRank-lite disabled, skipping")
+        return
+
+    from scripts.paper_rank import enrich_paper_rank_scores
+
+    updated = enrich_paper_rank_scores(data_dir / "papers.yaml", config)
+    print(f"[build] PaperRank-lite enriched {updated} papers")
+
+
+def deep_research_queue_step(data_dir: Path, resource_dir: Path, config: dict) -> None:
+    """Queue high read-first papers for deep research."""
+    from scripts.deep_research_queue import build_deep_research_queue
+
+    queued = build_deep_research_queue(data_dir, config, resource_dir=resource_dir)
+    print(f"[build] Deep research queued {queued} papers")
+
+
+def literature_surveys_step(data_dir: Path, config: dict) -> None:
+    """Generate taxonomy-driven survey data."""
+    from scripts.literature_survey import build_literature_surveys
+
+    topics = build_literature_surveys(data_dir, config)
+    print(f"[build] Literature surveys generated {topics} topics")
+
+
 def sync_options_from_config(config: dict) -> dict:
     """Build shared options for sync_papers from awesome.yaml research config."""
     research = config.get("research", {})
@@ -289,6 +347,61 @@ def sync_options_from_config(config: dict) -> dict:
         "taxonomy": research.get("taxonomy", {}),
         "relevance_criteria": research.get("relevance_criteria", {}),
     }
+
+
+def _syncable_papers(papers: list[dict]) -> list[dict]:
+    """Ensure unified source entries have fields expected by sync_papers."""
+    result = []
+    for paper in papers:
+        if not isinstance(paper, dict) or not paper.get("title"):
+            continue
+        normalized = dict(paper)
+        normalized.setdefault("abstract", normalized.get("_description") or normalized.get("tldr") or "")
+        normalized.setdefault("categories", [])
+        result.append(normalized)
+    return result
+
+
+def sync_unified_paper_sources(
+    data_dir: Path,
+    config: dict,
+    *,
+    skip_llm: bool = False,
+    max_papers: int = 0,
+    search_days: int = None,
+) -> int:
+    """Collect arXiv/HF/upstream/AlphaXiv papers through one source layer."""
+    from scripts.paper_sources import collect_paper_sources
+    import sync
+
+    result = collect_paper_sources(
+        config,
+        search_days=search_days,
+        max_results=max_papers or 500,
+    )
+    for name, summary in result.get("sources", {}).items():
+        if not summary.get("enabled"):
+            continue
+        if summary.get("error"):
+            print(f"[build] {name} source failed: {summary['error']}")
+        else:
+            print(f"[build] {name} source: {summary.get('count', 0)} papers")
+
+    papers = _syncable_papers(result.get("papers", []))
+    if not papers:
+        print("[build] Unified paper sources found no papers")
+        return 0
+
+    research = config.get("research", {})
+    return sync.sync_papers(
+        papers,
+        data_dir / "papers.yaml",
+        source_repo="unified-sources",
+        skip_llm=skip_llm,
+        max_papers=max_papers or None,
+        negative_keywords=research.get("negative_keywords", []),
+        **sync_options_from_config(config),
+    )
 
 
 def apply_overrides(data_dir: Path, overrides_config: dict) -> None:
@@ -350,6 +463,7 @@ def generate_site(config: dict, output_dir) -> None:
         "ENABLE_TOOLS": str(section_enabled(config, "tools")).lower(),
         "ENABLE_RESOURCES": str(section_enabled(config, "resources")).lower(),
         "ENABLE_TRENDS": str(section_enabled(config, "trends")).lower(),
+        "ENABLE_SURVEYS": str(section_enabled(config, "surveys")).lower(),
     }
 
     template_dir = ROOT / "templates" / "astro-site"
@@ -364,10 +478,11 @@ def generate_site(config: dict, output_dir) -> None:
     # 确保必要的空数据文件存在（避免构建时 ENOENT）
     data_dir = output_dir / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("papers.yaml", "resources.yaml", "datasets.yaml", "tools.yaml"):
+    for name in ("papers.yaml", "resources.yaml", "datasets.yaml", "tools.yaml", "surveys.yaml", "research_runs.yaml"):
         f = data_dir / name
         if not f.exists():
-            f.write_text("[]\n", encoding="utf-8")
+            empty = "topics: []\n" if name == "surveys.yaml" else "runs: []\n" if name == "research_runs.yaml" else "[]\n"
+            f.write_text(empty, encoding="utf-8")
 
 
 def build_site(output_dir: Path) -> None:
@@ -689,11 +804,12 @@ def main():
     resource_dir.mkdir(parents=True, exist_ok=True)
     papers_yaml = root_data_dir / "papers.yaml"
 
-    # Ensure datasets.yaml and tools.yaml exist
-    for empty_file in ["papers.yaml", "datasets.yaml", "tools.yaml", "resources.yaml"]:
+    # Ensure data files exist
+    for empty_file in ["papers.yaml", "datasets.yaml", "tools.yaml", "resources.yaml", "surveys.yaml", "research_runs.yaml"]:
         ef = root_data_dir / empty_file
         if not ef.exists():
-            ef.write_text("[]\n", encoding="utf-8")
+            empty = "topics: []\n" if empty_file == "surveys.yaml" else "runs: []\n" if empty_file == "research_runs.yaml" else "[]\n"
+            ef.write_text(empty, encoding="utf-8")
 
     if args.render_only:
         generate_site(config, output_dir)
@@ -706,87 +822,21 @@ def main():
         print(f"[build] 完成！网站已生成到 {output_dir}")
         return
 
-    # Step 1: 自动发现并吸纳上游 awesome 项目数据（精选论文优先）
-    if not args.skip_discover:
-        discover_and_ingest(config, data_dir)
-
-    # Step 2: 搜索 arXiv 补充最新论文
+    # Step 1-2: 统一搜索 arXiv / HF / upstream awesome / optional AlphaXiv
     if not args.skip_search:
-        # Try researcher path first
-        new_papers = []
-        if not args.skip_researcher:
-            try:
-                from scripts.researcher_adapter import ResearcherAdapter
+        import copy
 
-                print("[build] Running arxiv-daily-researcher via ResearcherAdapter...")
-                adapter = ResearcherAdapter(config)
-                result = adapter.run_daily_research()
-                new_papers = adapter.convert_to_papers_yaml(result)
-                print(f"[build] Researcher found {len(new_papers)} papers")
-            except ImportError as e:
-                print(f"[build] Researcher unavailable ({e}), falling back to arXiv API")
-            except Exception as e:
-                import traceback
-                print(f"[build] Researcher failed ({type(e).__name__}: {e}), falling back to arXiv API")
-                traceback.print_exc()
-
-        # Fallback to arXiv API
-        if not new_papers:
-            from sync import search_arxiv, sync_papers
-
-            keywords = research.get("keywords", [])
-            categories = research.get("arxiv_categories", [])
-            date_from = research.get("date_from", "")
-            date_to = research.get("date_to", "")
-            negative_keywords = research.get("negative_keywords", [])
-
-            print(f"[build] Searching arXiv: keywords={keywords}, categories={categories}, from={date_from}")
-
-            papers = search_arxiv(keywords, categories, date_from, date_to, max_results=args.max_papers or 500)
-            if papers:
-                sync_options = sync_options_from_config(config)
-                added = sync_papers(
-                    papers,
-                    papers_yaml,
-                    source_repo="arxiv",
-                    skip_llm=args.skip_llm,
-                    max_papers=args.max_papers or None,
-                    negative_keywords=negative_keywords,
-                    **sync_options,
-                )
-                print(f"[build] Added {added} papers from arXiv API")
-            else:
-                print("[build] No papers found from arXiv API")
-        else:
-            # Researcher path: merge with dedup (skip existing papers)
-            from scripts.researcher_adapter import ResearcherAdapter
-            from sync import load_yaml, save_yaml
-
-            existing = load_yaml(papers_yaml)
-            before_count = len(new_papers)
-            merged, added = ResearcherAdapter.deduplicate(existing, new_papers)
-            save_yaml(papers_yaml, merged)
-            skipped = before_count - added
-            print(f"[build] Added {added} new papers, skipped {skipped} duplicates (total: {len(merged)})")
-
-    # Step 2.1: HuggingFace 数据源（如果启用且未跳过搜索）
-    if not args.skip_search:
-        sources_config = research.get("sources", {})
-        if sources_config.get("huggingface_daily", False) or sources_config.get("huggingface_trending", False):
-            try:
-                from scripts.hf_source import fetch_all_hf_papers
-                from scripts.researcher_adapter import ResearcherAdapter
-                from sync import load_yaml, save_yaml
-
-                print("[build] 抓取 HuggingFace 数据源...")
-                hf_papers = fetch_all_hf_papers(config)
-                if hf_papers:
-                    existing = load_yaml(papers_yaml)
-                    merged, added = ResearcherAdapter.deduplicate(existing, hf_papers)
-                    save_yaml(papers_yaml, merged)
-                    print(f"[build] HF 数据源: 新增 {added} 篇论文")
-            except Exception as e:
-                print(f"[build] HF 数据源抓取失败（非致命）: {e}")
+        source_config = copy.deepcopy(config)
+        if args.skip_discover:
+            source_config.setdefault("research", {}).setdefault("sources", {})["upstream_awesome"] = False
+            source_config.setdefault("research", {}).setdefault("auto_discover", {})["enabled"] = False
+        added = sync_unified_paper_sources(
+            data_dir,
+            source_config,
+            skip_llm=args.skip_llm,
+            max_papers=args.max_papers or 0,
+        )
+        print(f"[build] Unified paper sources added {added} papers")
 
     # teaser 图默认写入模板 public/assets；测试隔离时写到 data_dir 同级
     os.environ.setdefault("HUB_ASSETS_DIR", str(assets_dir))
@@ -806,6 +856,9 @@ def main():
         apply_overrides(data_dir, overrides_config)
 
     prune_disabled_section_data(data_dir, config)
+
+    # Step 2.8: 同步 datasets.yaml（HF datasets + benchmark/dataset papers）
+    sync_datasets_step(data_dir, config)
 
     # Step 3: 获取论文 teaser 图
     if not args.skip_teasers:
@@ -840,6 +893,13 @@ def main():
             gen_interp()
         except Exception as e:
             print(f"[build] 解读生成失败（非致命）: {e}")
+
+    # Step 4.5: PaperRank-lite read-first scoring
+    rank_papers_step(data_dir, config)
+
+    # Step 4.6: Deep research queue and literature survey data
+    deep_research_queue_step(data_dir, resource_dir, config)
+    literature_surveys_step(data_dir, config)
 
     # Step 5: 生成 Astro 网站
     generate_site(config, output_dir)

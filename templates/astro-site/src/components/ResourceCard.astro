@@ -7,14 +7,35 @@ const lang: Lang = _lang;
 const _t = useTranslations(lang);
 const title = item.name;
 const subtitle = item.type || item.category || '';
+const meta = [subtitle, item.year].filter(Boolean).join(' · ');
 const linkEntries = Object.entries(item.links || {}).filter(([, value]) => value);
 const sourceRepos = (item.sources || []).map((s) => s.repo).join(', ');
 const searchText = [title, subtitle, item.year, item.description, ...(item.tags || []), ...(item.language || []), ...(item.kernel || []), sourceRepos].join(' ').toLowerCase();
+const linkLabelMap: Record<string, { en: string; zh: string }> = {
+  paper: { en: 'Paper', zh: '论文' },
+  pdf: { en: 'PDF', zh: 'PDF' },
+  code: { en: 'Code', zh: '代码' },
+  github: { en: 'GitHub', zh: 'GitHub' },
+  repo: { en: 'Repo', zh: '仓库' },
+  dataset: { en: 'Dataset', zh: '数据集' },
+  data: { en: 'Data', zh: '数据' },
+  huggingface: { en: 'Hugging Face', zh: 'Hugging Face' },
+  project: { en: 'Project', zh: '项目' },
+  demo: { en: 'Demo', zh: '演示' },
+};
+function linkLabel(key: string) {
+  const normalized = key.toLowerCase();
+  const known = linkLabelMap[normalized];
+  if (known) return known[lang];
+  return key
+    .replace(/[_-]/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
 ---
 <article class="resource-card filter-item" data-search={searchText} data-category={subtitle} data-year={item.year || ''}>
   <div class="resource-head">
     <div>
-      <p class="eyebrow">{subtitle}{item.year ? ` · ${item.year}` : ''}</p>
+      {meta && <p class="eyebrow">{meta}</p>}
       <h3>{title}</h3>
     </div>
   </div>
@@ -25,7 +46,7 @@ const searchText = [title, subtitle, item.year, item.description, ...(item.tags 
   {item.language && item.language.length > 0 && <p class="compact"><strong>{_t('resource.language')}</strong> {item.language.join(', ')}</p>}
   {item.kernel && item.kernel.length > 0 && <p class="compact"><strong>{_t('resource.kernel')}</strong> {item.kernel.join(', ')}</p>}
   <div class="link-row">
-    {linkEntries.map(([key, value]) => <a href={value} target="_blank" rel="noreferrer">{key}</a>)}
+    {linkEntries.map(([key, value]) => <a href={value} target="_blank" rel="noreferrer">{linkLabel(key)}</a>)}
   </div>
   <div class="source-row" title={sourceRepos}>
     {(item.sources || []).map((source) => <span>{source.repo.split('/')[0]}</span>)}
