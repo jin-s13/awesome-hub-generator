@@ -2,7 +2,7 @@
 init_site.py — 初始化下游 awesome-*-hub 站点仓库
 
 在工作目录下创建一个可直接使用的下游站点，包含:
-  - awesome.yaml (从 generator 的模板复制)
+  - awesome.yaml (从 awesome.yaml.example 模板生成)
   - .github/workflows/daily-update.yml (从 templates/workflows/ 复制)
   - .gitignore
 
@@ -47,7 +47,7 @@ def init_site(name: str, title: str, output: str, description: str = "") -> None
     print(f"[init] 创建站点目录: {site_dir}")
 
     # 1. 复制 awesome.yaml 模板
-    template_yaml = ROOT / "awesome.yaml"
+    template_yaml = ROOT / "awesome.yaml.example"
     if template_yaml.exists():
         target_yaml = site_dir / "awesome.yaml"
         content = template_yaml.read_text(encoding="utf-8")

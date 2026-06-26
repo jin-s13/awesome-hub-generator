@@ -5,7 +5,7 @@
 
 project:
   name: "Awesome World Model Hub"
-  description: "A curated hub for World Model papers, datasets, tools, and research."
+  description: "A curated hub for World Model papers, benchmarks, datasets, and research."
   github_url: "https://github.com/jin-s13/awesome-world-model-hub"
   site_url: "https://jin-s13.github.io/awesome-world-model-hub"
   generator_repo: "jin-s13/awesome-hub-generator"
@@ -20,6 +20,43 @@ research:
     - "video world model"
     - "world dynamics prediction"
     - "model-based reinforcement learning world model"
+
+  # === 论文分类体系 ===
+  taxonomy:
+    paper_types:
+      - label: "method"
+        description: "New world model architectures, training objectives, inference methods, or planning/control algorithms."
+      - label: "benchmark"
+        description: "Datasets, evaluation suites, metrics, stress tests, leaderboards, or benchmark studies."
+      - label: "system"
+        description: "Runnable systems, platforms, simulators, frameworks, toolkits, or deployed pipelines."
+      - label: "theory"
+        description: "Theoretical analysis, formalization, guarantees, scaling laws, or conceptual foundations."
+      - label: "survey"
+        description: "Surveys, taxonomies, tutorials, position papers, or roadmap papers."
+      - label: "application"
+        description: "Domain applications of world models, such as robotics, driving, games, healthcare, or scientific simulation."
+    dimensions:
+      - name: "techniques"
+        description: "key techniques or methods used"
+      - name: "domains"
+        description: "application domains or environments"
+      - name: "modalities"
+        description: "input/output modalities such as video, action, 3D, language, proprioception, or tactile signals"
+
+  # === 相关性判断标准 ===
+  relevance_criteria:
+    include:
+      - "world models for prediction, simulation, planning, control, or decision making"
+      - "video, 3D, embodied, robotic, driving, game, or interactive generative world models"
+      - "model-based reinforcement learning or latent dynamics models used as world models"
+      - "datasets, benchmarks, or evaluations specifically targeting world models"
+      - "theoretical or survey work centered on world models"
+    exclude:
+      - "generic generative AI without world-modeling, simulation, or predictive dynamics"
+      - "ordinary LLM agents, MCP tools, coding agents, RAG, or software engineering without a world model contribution"
+      - "medical, finance, climate, anomaly detection, or time-series papers unrelated to world models"
+      - "general computer vision or 3D reconstruction without dynamics, simulation, or world-model framing"
 
   # === 负向关键词（命中直接排除） ===
   negative_keywords:
@@ -95,16 +132,14 @@ website:
   sections:
     papers: true
     datasets: true
-    tools: true
-    resources: true
+    tools: false
+    resources: false
     trends: true
   nav:
     - home
     - papers
     - trends
     - datasets
-    - tools
-    - resources
   features:
     filter_bar: true
     i18n: true

@@ -26,6 +26,15 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from config_bridge import deep_merge
+from site_paths import (
+    default_assets_dir,
+    default_data_dir,
+    default_output_dir,
+    default_resource_dir,
+    hub_workspace_dir,
+    resolve_config_path,
+    resolve_user_path,
+)
 
 # CWD is the site root (downstream repo root, or generator root for dev).
 SITE_DIR = Path.cwd()
@@ -343,9 +352,10 @@ def build_step(config: dict, output_dir: Path, data_dir: Path):
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="论文更新（candidate 池架构）")
+    parser.add_argument("--hub", default=None, help="本地 hub 名称（读取 .local/{hub}/awesome.yaml）")
     parser.add_argument("--config", default="awesome.yaml", help="配置文件路径")
-    parser.add_argument("--output", default=".local/website", help="网站输出目录")
-    parser.add_argument("--data-dir", default=".local/data", help="数据目录")
+    parser.add_argument("--output", default=None, help="网站输出目录（默认自动按站点隔离）")
+    parser.add_argument("--data-dir", default=None, help="数据目录（默认自动按站点隔离）")
     parser.add_argument("--search-days", type=int, default=None,
                         help="覆盖 daily_search_days")
     parser.add_argument("--init", action="store_true",
@@ -356,7 +366,8 @@ def main():
                         help="跳过种子 references 扩展")
     args = parser.parse_args()
 
-    config = load_config(args.config)
+    config_path = resolve_config_path(ROOT, SITE_DIR, args.config, args.hub)
+    config = load_config(str(config_path))
     research = config.get("research", {})
 
     # 决定搜索范围
@@ -370,9 +381,24 @@ def main():
         search_days = args.search_days or research.get("daily_search_days", 3)
         logger.info(f"=== DAILY MODE: last {search_days} days ===")
 
-    output_dir = (SITE_DIR / args.output).resolve()
-    data_dir = (SITE_DIR / args.data_dir).resolve()
+    if args.hub:
+        workspace = hub_workspace_dir(ROOT, args.hub)
+        default_output = workspace / "website"
+        default_data = workspace / "data"
+        default_assets = workspace / "assets" / "papers"
+        default_resource = workspace / "resource"
+    else:
+        default_output = default_output_dir(ROOT, SITE_DIR, config)
+        default_data = default_data_dir(ROOT, SITE_DIR, config)
+        default_assets = default_assets_dir(ROOT, SITE_DIR, config)
+        default_resource = default_resource_dir(ROOT, SITE_DIR, config)
+    output_dir = resolve_user_path(SITE_DIR, args.output, default_output)
+    data_dir = resolve_user_path(SITE_DIR, args.data_dir, default_data)
+    assets_dir = default_assets if not args.data_dir else data_dir.parent / "assets" / "papers"
+    resource_dir = default_resource if not args.data_dir else data_dir.parent / "resource"
     data_dir.mkdir(parents=True, exist_ok=True)
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    resource_dir.mkdir(parents=True, exist_ok=True)
     for empty_file in ("papers.yaml", "resources.yaml", "datasets.yaml", "tools.yaml"):
         f = data_dir / empty_file
         if not f.exists():
@@ -380,8 +406,9 @@ def main():
     papers_yaml = data_dir / "papers.yaml"
 
     os.environ["HUB_DATA_DIR"] = str(data_dir)
-    os.environ.setdefault("HUB_ASSETS_DIR", str(data_dir.parent / "assets" / "papers"))
-    os.environ["HUB_CONFIG_PATH"] = str((SITE_DIR / args.config).resolve())
+    os.environ["HUB_ASSETS_DIR"] = str(assets_dir)
+    os.environ["HUB_RESOURCE_DIR"] = str(resource_dir)
+    os.environ["HUB_CONFIG_PATH"] = str(config_path)
 
     # 初始化 candidate 池
     from scripts.candidate_pool import CandidatePool

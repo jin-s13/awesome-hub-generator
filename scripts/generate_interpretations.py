@@ -394,6 +394,113 @@ Return ONLY valid JSON, no other text:
     return {}
 
 
+def generate_chinese_fields(
+    title: str,
+    abstract: str,
+    tldr_en: str = "",
+    analysis: Optional[Dict] = None,
+    requested_fields: Optional[List[str]] = None,
+) -> Dict:
+    """
+    Generate all missing Chinese-facing paper fields in one LLM call.
+
+    Returns any of: title_cn, abstract_cn, tldr_cn, analysis_cn.
+    """
+    if not title and not abstract:
+        return {}
+
+    requested = list(requested_fields) if requested_fields else ["title_cn", "abstract_cn"]
+    if tldr_en and "tldr_cn" not in requested:
+        requested.append("tldr_cn")
+    if analysis and "analysis_cn" not in requested:
+        requested.append("analysis_cn")
+
+    requested = [f for f in requested if f in {"title_cn", "abstract_cn", "tldr_cn", "analysis_cn"}]
+    if not requested:
+        return {}
+
+    analysis_payload = json.dumps(analysis or {}, ensure_ascii=False, indent=2)
+    requested_schema = {
+        "title_cn": "Chinese translation of the title",
+        "abstract_cn": "Chinese translation of the abstract",
+        "tldr_cn": "Concise Chinese one-sentence TLDR, max 50 Chinese characters",
+        "analysis_cn": {
+            "innovations": ["translated innovation 1"],
+            "methodology": "translated methodology",
+            "key_results": "translated key results",
+            "limitations": ["translated limitation 1"],
+            "tech_stack": ["tech1"],
+        },
+    }
+    schema = {field: requested_schema[field] for field in requested}
+
+    prompt = f"""You are a professional academic translator and research summarizer.
+
+Generate the requested Chinese fields for this research paper in one JSON object.
+
+Requirements:
+1. Keep academic terminology accurate.
+2. Keep model, dataset, benchmark, and method names in English when appropriate.
+3. Return ONLY valid JSON with exactly the requested top-level keys.
+4. Do not invent analysis fields when no English analysis is provided.
+
+Requested JSON schema:
+{json.dumps(schema, ensure_ascii=False, indent=2)}
+
+Title:
+{title}
+
+Abstract:
+{abstract[:2000]}
+
+English TLDR:
+{tldr_en or "N/A"}
+
+English analysis JSON:
+{analysis_payload if analysis else "N/A"}
+"""
+
+    raw = _llm_chat(
+        [{"role": "user", "content": prompt}],
+        max_tokens=4096,
+        task_type="translate_chinese_fields",
+        prompt_version="translate_chinese_fields_v1",
+        paper_identity=paper_identity_from(title=title),
+        abstract=abstract,
+        criteria={
+            "requested_fields": requested,
+            "tldr_en": tldr_en,
+            "analysis": analysis or {},
+        },
+    )
+    if not raw:
+        return {}
+
+    result = _extract_json(raw)
+    if not result:
+        return {}
+
+    output: Dict[str, Any] = {}
+    for field in requested:
+        value = result.get(field)
+        if value:
+            output[field] = value
+    return output
+
+
+def paper_needs_chinese_fields(paper: Dict) -> bool:
+    """Return true when any Chinese-facing field can be backfilled."""
+    if not paper.get("title"):
+        return False
+    if not paper.get("title_cn") or not paper.get("abstract_cn"):
+        return True
+    if paper.get("tldr") and not paper.get("tldr_cn"):
+        return True
+    if paper.get("analysis") and not paper.get("analysis_cn"):
+        return True
+    return False
+
+
 def grade_papers(papers: List[Dict], config: dict) -> List[Dict]:
     """根据评分和配置对论文进行分级。
 
@@ -592,7 +699,7 @@ def main():
     if not config_path or not config_path.exists():
         config_path = SITE_DIR / "awesome.yaml"
     if not config_path.exists():
-        config_path = ROOT / "awesome.yaml"
+        config_path = ROOT / "awesome.yaml.example"
     config = {}
     keywords = []
     if config_path.exists():
@@ -689,10 +796,7 @@ def main():
     if not isinstance(papers, list):
         return
 
-    papers_needing_cn = [
-        p for p in papers
-        if p.get("title") and (not p.get("title_cn") or not p.get("abstract_cn"))
-    ]
+    papers_needing_cn = [p for p in papers if paper_needs_chinese_fields(p)]
     if not papers_needing_cn:
         logger.info("All papers already have Chinese translations")
     else:
@@ -711,23 +815,51 @@ def main():
             logger.info(f"  [CN {i+1}/{len(papers_needing_cn)}] {title[:60]}...")
 
             try:
-                # Translate title and abstract
-                trans_result = translate_title_abstract(title, abstract)
-                if trans_result.get("title_cn"):
-                    paper["title_cn"] = trans_result["title_cn"]
-                if trans_result.get("abstract_cn"):
-                    paper["abstract_cn"] = trans_result["abstract_cn"]
-
-                # Generate Chinese TLDR if English TLDR exists
                 tldr_en = paper.get("tldr", "")
+                analysis = paper.get("analysis")
+                requested_fields = []
+                if not paper.get("title_cn"):
+                    requested_fields.append("title_cn")
+                if not paper.get("abstract_cn"):
+                    requested_fields.append("abstract_cn")
                 if tldr_en and not paper.get("tldr_cn"):
+                    requested_fields.append("tldr_cn")
+                if analysis and not paper.get("analysis_cn"):
+                    requested_fields.append("analysis_cn")
+
+                combined = generate_chinese_fields(
+                    title=title,
+                    abstract=abstract,
+                    tldr_en=tldr_en if "tldr_cn" in requested_fields else "",
+                    analysis=analysis if "analysis_cn" in requested_fields else None,
+                    requested_fields=requested_fields,
+                )
+
+                if combined.get("title_cn"):
+                    paper["title_cn"] = combined["title_cn"]
+                if combined.get("abstract_cn"):
+                    paper["abstract_cn"] = combined["abstract_cn"]
+                if combined.get("tldr_cn"):
+                    paper["tldr_cn"] = combined["tldr_cn"]
+                if combined.get("analysis_cn"):
+                    paper["analysis_cn"] = combined["analysis_cn"]
+
+                # Fallbacks only run for malformed/partial combined responses.
+                if ("title_cn" in requested_fields or "abstract_cn" in requested_fields) and (
+                    not paper.get("title_cn") or not paper.get("abstract_cn")
+                ):
+                    trans_result = translate_title_abstract(title, abstract)
+                    if trans_result.get("title_cn"):
+                        paper["title_cn"] = trans_result["title_cn"]
+                    if trans_result.get("abstract_cn"):
+                        paper["abstract_cn"] = trans_result["abstract_cn"]
+
+                if "tldr_cn" in requested_fields and not paper.get("tldr_cn"):
                     tldr_cn = generate_tldr_cn(title, abstract, tldr_en)
                     if tldr_cn:
                         paper["tldr_cn"] = tldr_cn
 
-                # Translate analysis if it exists and no Chinese analysis yet
-                analysis = paper.get("analysis")
-                if analysis and not paper.get("analysis_cn"):
+                if "analysis_cn" in requested_fields and not paper.get("analysis_cn"):
                     analysis_cn = translate_analysis(analysis)
                     if analysis_cn:
                         paper["analysis_cn"] = analysis_cn

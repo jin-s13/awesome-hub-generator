@@ -12,19 +12,19 @@
 
 ## 快速开始
 
-### 1. 创建下游站点
+### 1. 创建本地 hub
 
 在 generator 根目录执行：
 
 ```bash
-python scripts/init_site.py --name awesome-cad-hub --title "Awesome CAD Hub"
+python scripts/init_hub.py --name awesome-cad-hub --title "Awesome CAD Hub"
 ```
 
-这会在当前目录下创建 `awesome-cad-hub/` 站点目录，包含 `awesome.yaml`、`.github/workflows/daily-update.yml` 和 `.gitignore`。
+这会创建 `.local/awesome-cad-hub/` 工作区，包含 `awesome.yaml`、`data/`、`assets/`、`resource/` 和 `website/`。
 
 ### 2. 配置研究方向
 
-编辑 `awesome-cad-hub/awesome.yaml`：
+编辑 `.local/awesome-cad-hub/awesome.yaml`：
 
 ```yaml
 project:
@@ -57,8 +57,7 @@ research:
 在站点目录下创建 `.env` 文件：
 
 ```bash
-cd awesome-cad-hub
-cp ../.env.example .env
+cp .env.example .env
 # 编辑 .env 填入 API Key
 ```
 
@@ -74,13 +73,26 @@ cp ../.env.example .env
 ### 4. 全量构建（首次初始化）
 
 ```bash
-cd awesome-cad-hub
-python ../scripts/build.py
+python scripts/build.py --hub awesome-cad-hub
 ```
 
 首次构建会搜索 arXiv 历史论文，LLM 评分+深度分析后生成完整的 Astro 网站。已有完整数据的论文会自动跳过，不重复处理。
 
-### 5. 每日自动更新
+### 5. 本地预览
+
+```bash
+cd .local/awesome-cad-hub/website
+npm install
+npm run dev
+```
+
+### 6. 下游仓库部署
+
+需要 GitHub Pages 部署时，再创建独立下游仓库：
+
+```bash
+python scripts/init_site.py --name awesome-cad-hub --title "Awesome CAD Hub"
+```
 
 将站点推送到 GitHub 后，`.github/workflows/daily-update.yml` 会每天自动运行，检查 arXiv 新论文并更新网站。
 
@@ -105,6 +117,7 @@ awesome-hub-generator/              ← 通用生成器工具（本仓库）
 ├── scripts/
 │   ├── build.py                    # 全量构建入口
 │   ├── update.py                   # 每日更新入口（支持 --search-days gap-fill）
+│   ├── init_hub.py                 # 本地 .local/{hub} 初始化脚本
 │   ├── init_site.py                # 下游站点初始化脚本
 │   ├── config_bridge.py            # 配置桥接器
 │   ├── researcher_adapter.py       # researcher 适配层
@@ -117,12 +130,14 @@ awesome-hub-generator/              ← 通用生成器工具（本仓库）
 │   ├── astro-site/                 # Astro 网站模板
 │   └── workflows/
 │       └── daily-update.yml        # 下游仓库 GHA 模板（含 teaser fetch）
-├── awesome.yaml                    # 示例配置（供 init_site.py 复制）
+├── awesome.yaml.example            # 通用配置模板
+├── examples/                       # 可选示例配置
 └── .local/                         # 本地产出物（gitignore）
-    └── awesome-cad-hub/            # 下游站点数据
+    └── awesome-cad-hub/            # 本地 hub 工作区
         ├── awesome.yaml
         ├── data/                   # papers.yaml, resources.yaml 等
         ├── assets/                 # teaser 图片
+        ├── resource/               # 论文解读与衍生材料
         └── website/                # 生成的 Astro 网站
 
 awesome-cad-hub/                    ← 下游站点仓库（独立部署）
@@ -133,12 +148,14 @@ awesome-cad-hub/                    ← 下游站点仓库（独立部署）
 └── README.md
 ```
 
+默认路径会按运行位置自动切换：如果直接在生成器仓库根目录运行，请用 `--hub awesome-cad-hub`，它会读取 `.local/awesome-cad-hub/awesome.yaml` 并写入同一工作区的 `data`、`assets`、`resource` 和 `website`；如果在下游站点仓库里运行，则使用该仓库自己的 `.local/data`、`.local/assets`、`.local/resource` 和 `.local/website`。
+
 ## 工作原理
 
 ```
                     ┌─────────────────────┐
                     │   awesome.yaml      │
-                    │  (站点配置, 在下游)   │
+                    │  (.local 或下游仓库) │
                     └────────┬────────────┘
                              │
               ┌──────────────┴──────────────┐
@@ -183,7 +200,7 @@ awesome-cad-hub/                    ← 下游站点仓库（独立部署）
 
 ### 添加 datasets 和 tools
 
-除了自动生成的论文，你还可以在 `.local/data/datasets.yaml` 和 `.local/data/tools.yaml` 中手动维护数据集和工具列表。注意 `.local/` 已 gitignore，如需持久化请通过 `awesome.yaml` 的 `auto_discover` 配置自动发现上游项目。
+除了自动生成的论文，你还可以在站点工作区的 `data/datasets.yaml` 和 `data/tools.yaml` 中手动维护数据集和工具列表。下游站点仓库中默认是 `.local/data/...`；直接在生成器仓库根目录运行时默认是 `.local/{project-slug}/data/...`。注意 `.local/` 已 gitignore，如需持久化请通过 `awesome.yaml` 的 `auto_discover` 配置自动发现上游项目。
 
 ### 调整评分策略
 
@@ -221,22 +238,21 @@ git submodule update --init --recursive
 # 2. 安装 Python 依赖
 python -m pip install -r requirements.txt
 
-# 3. 创建下游站点并配置
-python scripts/init_site.py --name awesome-cad-hub --title "Awesome CAD Hub"
-cd awesome-cad-hub
-cp ../.env.example .env  # 编辑填入 API Key
+# 3. 创建本地 hub 并配置
+python scripts/init_hub.py --name awesome-cad-hub --title "Awesome CAD Hub"
+cp .env.example .env  # 编辑填入 API Key
 
 # 4. 全量构建
-python ../scripts/build.py
+python scripts/build.py --hub awesome-cad-hub
 
 # 5. 本地预览
-cd .local/website && npm run dev
+cd .local/awesome-cad-hub/website && npm run dev
 
 # 6. 增量更新（每日）
-python ../scripts/update.py
+python scripts/update.py --hub awesome-cad-hub
 
 # 7. 查漏补缺（搜索最近30天）
-python ../scripts/update.py --search-days 30
+python scripts/update.py --hub awesome-cad-hub --search-days 30
 ```
 
 ## 许可证

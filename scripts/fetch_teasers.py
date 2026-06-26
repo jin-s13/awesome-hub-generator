@@ -484,7 +484,9 @@ def localize_image(paper: Dict, assets_dir: Path, timeout: int = 30) -> bool:
 
 def _load_image_localization_config() -> Dict[str, Any]:
     """从 awesome.yaml 读取 image_localization 配置。"""
-    for config_path in [SITE_DIR / "awesome.yaml", ROOT / "awesome.yaml"]:
+    env_config = Path(os.environ.get("HUB_CONFIG_PATH", "")) if os.environ.get("HUB_CONFIG_PATH") else None
+    candidates = [p for p in [env_config, SITE_DIR / "awesome.yaml", ROOT / "awesome.yaml.example"] if p]
+    for config_path in candidates:
         if config_path.exists():
             try:
                 config = yaml.safe_load(config_path.read_text(encoding="utf-8"))

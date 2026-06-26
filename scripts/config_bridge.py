@@ -21,6 +21,40 @@ RESEARCHER_CONFIG_PATH = RESEARCHER_DIR / "configs" / "config.json"
 RESEARCHER_ENV_PATH = RESEARCHER_DIR / ".env"
 
 
+def researcher_env_values(
+    ark_api_key: Optional[str] = None,
+    ark_base_url: Optional[str] = None,
+    ark_model_name: Optional[str] = None,
+    smart_model_name: Optional[str] = None,
+) -> Dict[str, str]:
+    api_key = ark_api_key or os.environ.get("ARK_API_KEY", "")
+    base_url = ark_base_url or os.environ.get(
+        "ARK_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"
+    )
+    cheap_model = ark_model_name or os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash-260425")
+    if smart_model_name is not None:
+        smart_model = smart_model_name
+    elif ark_model_name is not None:
+        smart_model = cheap_model
+    else:
+        smart_model = os.environ.get("SMART_MODEL_NAME", cheap_model)
+    return {
+        "CHEAP_LLM__API_KEY": api_key,
+        "CHEAP_LLM__BASE_URL": base_url,
+        "CHEAP_LLM__MODEL_NAME": cheap_model,
+        "SMART_LLM__API_KEY": api_key,
+        "SMART_LLM__BASE_URL": base_url,
+        "SMART_LLM__MODEL_NAME": smart_model,
+        "NOTIFICATIONS_ENABLED": "false",
+        "WEBDAV_ENABLED": "false",
+    }
+
+
+def apply_researcher_env(values: Dict[str, str]) -> None:
+    for key, value in values.items():
+        os.environ[key] = value
+
+
 def awesome_to_researcher_config(awesome_config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Convert awesome.yaml config dict to researcher config.json dict.
@@ -231,22 +265,21 @@ def generate_env_file(
     Returns:
         The generated .env file content as a string.
     """
-    api_key = ark_api_key or os.environ.get("ARK_API_KEY", "")
-    base_url = ark_base_url or os.environ.get(
-        "ARK_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"
+    values = researcher_env_values(
+        ark_api_key=ark_api_key,
+        ark_base_url=ark_base_url,
+        ark_model_name=ark_model_name,
+        smart_model_name=smart_model_name,
     )
-    cheap_model = ark_model_name or os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash-260425")
-    smart_model = smart_model_name or os.environ.get(
-        "SMART_MODEL_NAME", cheap_model
-    )
+    apply_researcher_env(values)
 
     lines = [
-        f'CHEAP_LLM__API_KEY="{api_key}"',
-        f'CHEAP_LLM__BASE_URL="{base_url}"',
-        f'CHEAP_LLM__MODEL_NAME="{cheap_model}"',
-        f'SMART_LLM__API_KEY="{api_key}"',
-        f'SMART_LLM__BASE_URL="{base_url}"',
-        f'SMART_LLM__MODEL_NAME="{smart_model}"',
+        f'CHEAP_LLM__API_KEY="{values["CHEAP_LLM__API_KEY"]}"',
+        f'CHEAP_LLM__BASE_URL="{values["CHEAP_LLM__BASE_URL"]}"',
+        f'CHEAP_LLM__MODEL_NAME="{values["CHEAP_LLM__MODEL_NAME"]}"',
+        f'SMART_LLM__API_KEY="{values["SMART_LLM__API_KEY"]}"',
+        f'SMART_LLM__BASE_URL="{values["SMART_LLM__BASE_URL"]}"',
+        f'SMART_LLM__MODEL_NAME="{values["SMART_LLM__MODEL_NAME"]}"',
         "",
         "# ================================================",
         "# Disable notifications for CI/automated runs",

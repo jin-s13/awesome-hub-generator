@@ -18,11 +18,14 @@ const datasets = getDatasets();
 const tools = getTools();
 const resources = getResources();
 const stats = getStats();
+const showDatasets = {{ENABLE_DATASETS}};
+const showTools = {{ENABLE_TOOLS}};
+const showResources = {{ENABLE_RESOURCES}};
 const featured = papers
   .sort((a, b) => (b.score?.total || 0) - (a.score?.total || 0))
   .slice(0, 6);
 ---
-<Base title="Awesome CAD Hub" lang={lang}>
+<Base title="{{PROJECT_NAME}}" lang={lang}>
   <section class="hero">
     <div class="hero-copy">
       <p class="eyebrow">{_t('hero.eyebrow')}</p>
@@ -30,15 +33,16 @@ const featured = papers
       <p set:html={_t('hero.description')}></p>
       <div class="hero-actions">
         <a class="button primary" href={localizePath('/papers', lang)}>{_t('hero.explorePapers')}</a>
-        <a class="button" href={localizePath('/tools', lang)}>{_t('hero.browseTools')}</a>
+        {showTools && <a class="button" href={localizePath('/tools', lang)}>{_t('hero.browseTools')}</a>}
+        {!showTools && showDatasets && <a class="button" href={localizePath('/datasets', lang)}>{_t('nav.datasets')}</a>}
       </div>
     </div>
     <div class="hero-panel">
       <div class="stat-grid">
         <div><strong>{stats.papers}</strong><span>{_t('stat.papers')}</span></div>
-        <div><strong>{stats.datasets}</strong><span>{_t('stat.datasets')}</span></div>
-        <div><strong>{stats.tools}</strong><span>{_t('stat.tools')}</span></div>
-        <div><strong>{stats.resources}</strong><span>{_t('stat.resources')}</span></div>
+        {showDatasets && <div><strong>{stats.datasets}</strong><span>{_t('stat.datasets')}</span></div>}
+        {showTools && <div><strong>{stats.tools}</strong><span>{_t('stat.tools')}</span></div>}
+        {showResources && <div><strong>{stats.resources}</strong><span>{_t('stat.resources')}</span></div>}
         <div><strong>{stats.sources}</strong><span>{_t('stat.sources')}</span></div>
       </div>
       <p>{_t('hero.categories')} {stats.categories.join(' · ')}</p>
@@ -56,8 +60,8 @@ const featured = papers
     {featured.map((paper) => <PaperCard paper={paper} lang={lang} />)}
   </div>
 
-  <section class="split-section">
-    <div>
+  {(showDatasets || showTools) && <section class="split-section">
+    {showDatasets && <div>
       <section class="section-head compact-head">
         <div>
           <p class="eyebrow">{_t('section.datasets')}</p>
@@ -68,8 +72,8 @@ const featured = papers
       <div class="stack-list">
         {datasets.slice(0, 3).map((item) => <ResourceCard item={item} lang={lang} />)}
       </div>
-    </div>
-    <div>
+    </div>}
+    {showTools && <div>
       <section class="section-head compact-head">
         <div>
           <p class="eyebrow">{_t('section.tools')}</p>
@@ -80,6 +84,6 @@ const featured = papers
       <div class="stack-list">
         {tools.slice(0, 3).map((item) => <ResourceCard item={item} lang={lang} />)}
       </div>
-    </div>
-  </section>
+    </div>}
+  </section>}
 </Base>

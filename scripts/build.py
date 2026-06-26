@@ -22,6 +22,15 @@ sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT))
 
 from config_bridge import deep_merge
+from site_paths import (
+    default_assets_dir,
+    default_data_dir,
+    default_output_dir,
+    default_resource_dir,
+    hub_workspace_dir,
+    resolve_config_path,
+    resolve_user_path,
+)
 
 # CWD is the site root (downstream repo root, or generator root for dev).
 # User data (awesome.yaml, .env, data/, output/) resolves against CWD.
@@ -173,6 +182,39 @@ def split_papers_resources(data_dir: Path) -> None:
     print(f"[build] papers.yaml 保留 {len(keep_papers)} 篇论文")
 
 
+def filter_auto_discovered_entries(entries: list[dict], config: dict) -> list[dict]:
+    """Drop generic GitHub/resource entries before merging auto-discovered data."""
+    from url_classify import detect_resource_type, entry_is_paper
+
+    research = config.get("research", {})
+    auto = research.get("auto_discover", {})
+    keep_abstractless = bool(auto.get("keep_abstractless", False))
+    keep_resources = section_enabled(config, "resources")
+
+    filtered = []
+    for entry in entries:
+        if entry_is_paper(entry):
+            filtered.append(entry)
+            continue
+
+        if entry.get("_type") == "resource" or keep_resources:
+            if keep_resources:
+                url = ""
+                for value in (entry.get("links") or {}).values():
+                    if value:
+                        url = str(value)
+                        break
+                entry["_type"] = "resource"
+                entry.setdefault("resource_type", detect_resource_type(url))
+                filtered.append(entry)
+            continue
+
+        if keep_abstractless:
+            filtered.append(entry)
+
+    return filtered
+
+
 def filter_irrelevant_papers(data_dir: Path, config: dict) -> None:
     """过滤与研究方向不相关的论文"""
     import yaml
@@ -192,10 +234,12 @@ def filter_irrelevant_papers(data_dir: Path, config: dict) -> None:
     domain_keywords = research.get("keywords", []) + research.get("domain_boost_keywords", [])
     project_desc = config.get("project", {}).get("description", "")
     research_context = project_desc or " ".join(domain_keywords[:5])
+    relevance_criteria = research.get("relevance_criteria", {})
 
     relevant, removed = filter_papers(
         papers, negative, min_score,
         research_context=research_context,
+        relevance_criteria=relevance_criteria,
         domain_keywords=domain_keywords,
     )
 
@@ -209,6 +253,42 @@ def filter_irrelevant_papers(data_dir: Path, config: dict) -> None:
             print(f"[build]   - {(p.get('title') or '')[:60]}")
     else:
         print(f"[build] 无不相关论文需过滤 ({len(relevant)} 篇)")
+
+
+def section_enabled(config: dict, section: str, default: bool = True) -> bool:
+    """Return whether a website section is enabled in awesome.yaml."""
+    sections = config.get("website", {}).get("sections", {})
+    return bool(sections.get(section, default))
+
+
+def prune_disabled_section_data(data_dir: Path, config: dict) -> None:
+    """Clear data files for disabled optional website sections."""
+    disabled_files = {
+        "datasets": "datasets.yaml",
+        "tools": "tools.yaml",
+        "resources": "resources.yaml",
+    }
+    for section, filename in disabled_files.items():
+        if section_enabled(config, section):
+            continue
+        path = data_dir / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.exists() or path.read_text(encoding="utf-8") != "[]\n":
+            path.write_text("[]\n", encoding="utf-8")
+            print(f"[build] 已清空禁用 section 数据: {filename}")
+
+
+def sync_options_from_config(config: dict) -> dict:
+    """Build shared options for sync_papers from awesome.yaml research config."""
+    research = config.get("research", {})
+    project = config.get("project", {})
+    domain_keywords = research.get("keywords", []) + research.get("domain_boost_keywords", [])
+    research_context = project.get("description") or " ".join(domain_keywords[:5])
+    return {
+        "research_context": research_context,
+        "taxonomy": research.get("taxonomy", {}),
+        "relevance_criteria": research.get("relevance_criteria", {}),
+    }
 
 
 def apply_overrides(data_dir: Path, overrides_config: dict) -> None:
@@ -266,6 +346,10 @@ def generate_site(config: dict, output_dir) -> None:
         "GITHUB_URL": project.get("github_url", "https://github.com/example/awesome-hub"),
         "GENERATOR_REPO": project.get("generator_repo", "your-username/awesome-hub-generator"),
         "FOOTER_HTML": website.get("footer", "Built with awesome-hub-generator."),
+        "ENABLE_DATASETS": str(section_enabled(config, "datasets")).lower(),
+        "ENABLE_TOOLS": str(section_enabled(config, "tools")).lower(),
+        "ENABLE_RESOURCES": str(section_enabled(config, "resources")).lower(),
+        "ENABLE_TRENDS": str(section_enabled(config, "trends")).lower(),
     }
 
     template_dir = ROOT / "templates" / "astro-site"
@@ -309,13 +393,13 @@ def copy_runtime_assets(output_dir: Path, data_dir: Path) -> None:
         shutil.copytree(data_src, data_dst, dirs_exist_ok=True)
         print(f"[build] 已复制数据到 {data_dst}")
 
-    assets_src = data_dir.parent / "assets" / "papers"
+    assets_src = Path(os.environ.get("HUB_ASSETS_DIR", str(data_dir.parent / "assets" / "papers")))
     assets_dst = output_dir / "public" / "assets" / "papers"
     if assets_src.exists():
         shutil.copytree(assets_src, assets_dst, dirs_exist_ok=True)
         print(f"[build] 已复制 teaser 图到 {assets_dst}")
 
-    resource_src = SITE_DIR / "resource"
+    resource_src = Path(os.environ.get("HUB_RESOURCE_DIR", str(data_dir.parent / "resource")))
     resource_dst = output_dir / "resource"
     if resource_src.exists():
         shutil.copytree(resource_src, resource_dst, dirs_exist_ok=True)
@@ -328,7 +412,7 @@ def discover_and_ingest(config: dict, data_dir: Path = None) -> int:
     Returns: 吸纳的论文总数
     """
     if data_dir is None:
-        data_dir = ROOT / ".local/data"
+        data_dir = Path(os.environ.get("HUB_DATA_DIR", str(SITE_DIR / ".local/data")))
     research = config.get("research", {})
     auto = research.get("auto_discover", {})
     if not auto.get("enabled", True):
@@ -398,6 +482,14 @@ def discover_and_ingest(config: dict, data_dir: Path = None) -> int:
             print(f"[build]    未解析到论文")
             continue
 
+        before_auto_filter = len(ingested)
+        ingested = filter_auto_discovered_entries(ingested, config)
+        if before_auto_filter != len(ingested):
+            print(f"[build]    自动发现过滤 {before_auto_filter - len(ingested)} 条非论文/禁用资源")
+        if not ingested:
+            print(f"[build]    过滤后无可用条目")
+            continue
+
         # 预过滤：用 negative_keywords 排除明显不相关条目
         negative = research.get("negative_keywords", [])
         if negative:
@@ -417,10 +509,13 @@ def discover_and_ingest(config: dict, data_dir: Path = None) -> int:
         total_ingested += added
         print(f"[build]    吸纳 {added} 篇新论文 (共 {len(ingested)} 篇解析)")
 
-        # 从上游 README 提取 datasets/tools 线索
-        ds, tools = _extract_datasets_tools_from_readme(readme, source.full_name)
-        existing_datasets.extend(ds)
-        existing_tools.extend(tools)
+        # 从上游 README 提取 datasets/tools 线索（按站点 section 开关控制）
+        if section_enabled(config, "datasets") or section_enabled(config, "tools"):
+            ds, tools = _extract_datasets_tools_from_readme(readme, source.full_name)
+            if section_enabled(config, "datasets"):
+                existing_datasets.extend(ds)
+            if section_enabled(config, "tools"):
+                existing_tools.extend(tools)
 
     if total_ingested > 0:
         save_yaml(papers_yaml, existing)
@@ -485,7 +580,7 @@ def generate_readme_with_table(config: dict, output_dir: Path, data_dir: Path = 
     import yaml
 
     if data_dir is None:
-        data_dir = SITE_DIR / ".local/data"
+        data_dir = Path(os.environ.get("HUB_DATA_DIR", str(SITE_DIR / ".local/data")))
     papers_path = data_dir / "papers.yaml"
     papers = []
     if papers_path.exists():
@@ -527,7 +622,8 @@ def generate_readme_with_table(config: dict, output_dir: Path, data_dir: Path = 
             paper_cell = title
 
         # 解读 column: link to interpretation file if exists
-        interp_path = Path("resource") / paper_id / "README.md"
+        resource_root = Path(os.environ.get("HUB_RESOURCE_DIR", str(data_dir.parent / "resource")))
+        interp_path = resource_root / paper_id / "README.md"
         if interp_path.exists():
             interp_cell = f"[解读](./resource/{paper_id}/README.md)"
         else:
@@ -543,9 +639,10 @@ def generate_readme_with_table(config: dict, output_dir: Path, data_dir: Path = 
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="全量构建 awesome 页面")
+    parser.add_argument("--hub", default=None, help="本地 hub 名称（读取 .local/{hub}/awesome.yaml）")
     parser.add_argument("--config", default="awesome.yaml", help="配置文件路径")
-    parser.add_argument("--output", default=".local/website", help="网站输出目录")
-    parser.add_argument("--data-dir", default=".local/data", help="数据目录（产出物隔离，已 gitignore）")
+    parser.add_argument("--output", default=None, help="网站输出目录（默认自动按站点隔离）")
+    parser.add_argument("--data-dir", default=None, help="数据目录（默认自动按站点隔离）")
     parser.add_argument("--skip-search", action="store_true", help="跳过所有数据搜索（arXiv + HF，仅重新生成网站）")
     parser.add_argument("--skip-researcher", action="store_true",
                         help="跳过 arxiv-daily-researcher（使用 arXiv API fallback）")
@@ -560,18 +657,36 @@ def main():
     parser.add_argument("--render-only", action="store_true", help="仅从已有 data/assets 渲染网站，不执行搜索/富化/解读")
     args = parser.parse_args()
 
-    config = load_config(args.config)
+    config_path = resolve_config_path(ROOT, SITE_DIR, args.config, args.hub)
+    config = load_config(str(config_path))
     research = config.get("research", {})
-    output_dir = Path(args.output).resolve()
-    data_dir = Path(args.data_dir).resolve()
+    if args.hub:
+        workspace = hub_workspace_dir(ROOT, args.hub)
+        default_data = workspace / "data"
+        default_output = workspace / "website"
+        default_assets = workspace / "assets" / "papers"
+        default_resource = workspace / "resource"
+    else:
+        default_data = default_data_dir(ROOT, SITE_DIR, config)
+        default_output = default_output_dir(ROOT, SITE_DIR, config)
+        default_assets = default_assets_dir(ROOT, SITE_DIR, config)
+        default_resource = default_resource_dir(ROOT, SITE_DIR, config)
+    data_dir = resolve_user_path(SITE_DIR, args.data_dir, default_data)
+    output_dir = resolve_user_path(SITE_DIR, args.output, default_output)
+    assets_dir = default_assets if not args.data_dir else data_dir.parent / "assets" / "papers"
+    resource_dir = default_resource if not args.data_dir else data_dir.parent / "resource"
 
     # 测试隔离时通过环境变量传递 data_dir 给子脚本
     import os
     os.environ["HUB_DATA_DIR"] = str(data_dir)
-    os.environ["HUB_CONFIG_PATH"] = str(Path(args.config).resolve())
+    os.environ["HUB_ASSETS_DIR"] = str(assets_dir)
+    os.environ["HUB_RESOURCE_DIR"] = str(resource_dir)
+    os.environ["HUB_CONFIG_PATH"] = str(config_path)
 
     root_data_dir = data_dir
     root_data_dir.mkdir(parents=True, exist_ok=True)
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    resource_dir.mkdir(parents=True, exist_ok=True)
     papers_yaml = root_data_dir / "papers.yaml"
 
     # Ensure datasets.yaml and tools.yaml exist
@@ -583,11 +698,8 @@ def main():
     if args.render_only:
         generate_site(config, output_dir)
         copy_runtime_assets(output_dir, data_dir)
-        _config_path = Path(args.config)
-        if not _config_path.is_absolute():
-            _config_path = SITE_DIR / args.config
-        if _config_path.exists():
-            shutil.copy2(_config_path, output_dir / "awesome.yaml")
+        if config_path.exists():
+            shutil.copy2(config_path, output_dir / "awesome.yaml")
         generate_readme_with_table(config, output_dir, data_dir)
         if not args.skip_build:
             build_site(output_dir)
@@ -632,9 +744,16 @@ def main():
 
             papers = search_arxiv(keywords, categories, date_from, date_to, max_results=args.max_papers or 500)
             if papers:
-                added = sync_papers(papers, papers_yaml, source_repo="arxiv", skip_llm=args.skip_llm,
-                                    max_papers=args.max_papers or None,
-                                    negative_keywords=negative_keywords)
+                sync_options = sync_options_from_config(config)
+                added = sync_papers(
+                    papers,
+                    papers_yaml,
+                    source_repo="arxiv",
+                    skip_llm=args.skip_llm,
+                    max_papers=args.max_papers or None,
+                    negative_keywords=negative_keywords,
+                    **sync_options,
+                )
                 print(f"[build] Added {added} papers from arXiv API")
             else:
                 print("[build] No papers found from arXiv API")
@@ -670,11 +789,12 @@ def main():
                 print(f"[build] HF 数据源抓取失败（非致命）: {e}")
 
     # teaser 图默认写入模板 public/assets；测试隔离时写到 data_dir 同级
-    os.environ.setdefault("HUB_ASSETS_DIR", str(data_dir.parent / "assets" / "papers"))
+    os.environ.setdefault("HUB_ASSETS_DIR", str(assets_dir))
 
     # Step 2.5: 分离非论文资源到 resources.yaml
     if not args.skip_search:
         split_papers_resources(data_dir)
+        prune_disabled_section_data(data_dir, config)
 
     # Step 2.6: 过滤与 CAD 不相关的论文
     if not args.skip_search:
@@ -684,6 +804,8 @@ def main():
     overrides_config = research.get("overrides", {})
     if overrides_config.get("enabled", False):
         apply_overrides(data_dir, overrides_config)
+
+    prune_disabled_section_data(data_dir, config)
 
     # Step 3: 获取论文 teaser 图
     if not args.skip_teasers:
@@ -726,11 +848,8 @@ def main():
     copy_runtime_assets(output_dir, data_dir)
 
     # Step 7: 复制 awesome.yaml 到输出目录
-    _config_path = Path(args.config)
-    if not _config_path.is_absolute():
-        _config_path = SITE_DIR / args.config
-    if _config_path.exists():
-        shutil.copy2(_config_path, output_dir / "awesome.yaml")
+    if config_path.exists():
+        shutil.copy2(config_path, output_dir / "awesome.yaml")
 
     # Step 8: 生成 README（含论文表格和「解读」列）
     generate_readme_with_table(config, output_dir, data_dir)

@@ -404,7 +404,9 @@ generate_site(config, output_dir)
 
 ### 6.1 配置系统
 
-**文件**: [awesome.yaml](../awesome.yaml)
+**模板文件**: [awesome.yaml.example](../awesome.yaml.example)
+
+真实配置文件由初始化命令生成：本地模式在 `.local/{hub}/awesome.yaml`，下游仓库模式在仓库根目录 `awesome.yaml`。
 
 **配置结构**:
 
@@ -465,13 +467,16 @@ website:              # 网站配置
 | `research.scoring.*` | `scoring_settings.*` |
 | `research.deep_analysis.pdf_parser` | `pdf_parser.mode` |
 
-### 6.3 站点初始化 (`init_site.py`)
+### 6.3 初始化脚本
 
-**文件**: [init_site.py](../scripts/init_site.py)
+**文件**: [init_hub.py](../scripts/init_hub.py)、[init_site.py](../scripts/init_site.py)
 
-**功能**: 创建下游 `awesome-*-hub` 站点仓库的目录结构和初始文件。
+**功能**:
 
-**创建内容**: awesome.yaml、`.github/workflows/daily-update.yml`、`.gitignore`、`README.md`
+- `init_hub.py`: 创建本地 `.local/{hub}` 工作区，包含 `awesome.yaml`、`data`、`assets`、`resource`、`website`。
+- `init_site.py`: 创建下游 `awesome-*-hub` 站点仓库的目录结构和初始文件。
+
+**下游仓库创建内容**: awesome.yaml、`.github/workflows/daily-update.yml`、`.gitignore`、`README.md`
 
 ### 6.4 URL 分类工具 (`url_classify.py`)
 
@@ -534,7 +539,7 @@ update.py main()
 ### 7.3 数据流
 
 ```
-awesome.yaml
+.local/{hub}/awesome.yaml 或下游仓库 awesome.yaml
     │
     ├── config_bridge → researcher config → ResearcherAdapter
     │                                             │
@@ -559,10 +564,11 @@ awesome.yaml
 
 | 产出物 | 路径 | 说明 |
 |--------|------|------|
-| papers.yaml | `.local/data/papers.yaml` | 论文数据（含评分/解读/分级/元数据） |
-| resources.yaml | `.local/data/resources.yaml` | 非论文资源 |
-| teaser 图片 | `.local/assets/papers/{id}/teaser.png` | 论文预览图 |
-| 解读文件 | `.local/resource/{id}/README.md` | 论文解读（含中文翻译） |
-| 历史记录 | `.local/data/.history.json` | 跨天去重记录 |
-| 网站构建产物 | `.local/website/dist/` | 静态 HTML 页面 |
+| papers.yaml | `WORKSPACE/data/papers.yaml` | 论文数据（含评分/解读/分级/元数据） |
+| resources.yaml | `WORKSPACE/data/resources.yaml` | 非论文资源 |
+| teaser 图片 | `WORKSPACE/assets/papers/{id}/teaser.png` | 论文预览图 |
+| 解读文件 | `WORKSPACE/resource/{id}/README.md` | 论文解读（含中文翻译） |
+| 历史记录 | `WORKSPACE/data/.history.json` | 跨天去重记录 |
+| 网站构建产物 | `WORKSPACE/website/dist/` | 静态 HTML 页面 |
 
+`WORKSPACE` 会按运行位置自动确定：直接在生成器仓库根目录运行时为 `.local/{project-slug}`，在下游站点仓库运行时为该仓库的 `.local`。

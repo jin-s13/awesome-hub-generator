@@ -5,7 +5,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from scripts.build import load_config, render_template, generate_readme_with_table
+from scripts.build import (
+    load_config,
+    render_template,
+    generate_readme_with_table,
+    filter_auto_discovered_entries,
+    filter_irrelevant_papers,
+    prune_disabled_section_data,
+    sync_options_from_config,
+)
 
 
 class TestLoadConfig:
@@ -66,6 +74,116 @@ class TestGenerateReadmeWithTable:
         assert "# Test Hub" in content
         assert "Paper 1" in content
         assert "http://url.com" in content
+
+
+class TestSectionDataPruning:
+    """Test website section switches affect generated data files."""
+
+    def test_clears_disabled_tools_and_resources_but_keeps_datasets(self, tmp_path):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "datasets.yaml").write_text("- name: Dataset\n", encoding="utf-8")
+        (data_dir / "tools.yaml").write_text("- name: Bad Tool\n", encoding="utf-8")
+        (data_dir / "resources.yaml").write_text("- name: Bad Resource\n", encoding="utf-8")
+
+        config = {
+            "website": {
+                "sections": {
+                    "datasets": True,
+                    "tools": False,
+                    "resources": False,
+                }
+            }
+        }
+
+        prune_disabled_section_data(data_dir, config)
+
+        assert (data_dir / "datasets.yaml").read_text(encoding="utf-8") == "- name: Dataset\n"
+        assert (data_dir / "tools.yaml").read_text(encoding="utf-8") == "[]\n"
+        assert (data_dir / "resources.yaml").read_text(encoding="utf-8") == "[]\n"
+
+
+class TestAutoDiscoverFiltering:
+    """Test GitHub auto-discover does not promote generic resources as papers."""
+
+    def test_drops_resource_entries_when_resources_section_is_disabled(self):
+        entries = [
+            {
+                "title": "Generic MCP Server",
+                "_type": "resource",
+                "links": {"code": "https://github.com/example/mcp"},
+            },
+            {
+                "title": "World Model Paper",
+                "links": {"paper": "https://arxiv.org/abs/2501.00001"},
+            },
+        ]
+        config = {"website": {"sections": {"resources": False}}}
+
+        filtered = filter_auto_discovered_entries(entries, config)
+
+        assert [item["title"] for item in filtered] == ["World Model Paper"]
+
+    def test_drops_abstractless_non_academic_entries_when_resources_disabled(self):
+        entries = [
+            {"title": "GitHub Project", "links": {"code": "https://github.com/example/project"}},
+            {"title": "Academic Paper", "links": {"paper": "https://openreview.net/forum?id=abc"}},
+        ]
+
+        filtered = filter_auto_discovered_entries(entries, {"website": {"sections": {"resources": False}}})
+
+        assert [item["title"] for item in filtered] == ["Academic Paper"]
+
+
+class TestRelevanceFiltering:
+    """Test build forwards configured relevance criteria to relevance_filter."""
+
+    def test_filter_irrelevant_papers_passes_relevance_criteria(self, tmp_path, monkeypatch):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "papers.yaml").write_text(
+            "- title: Paper\n  abstract: About world models.\n",
+            encoding="utf-8",
+        )
+        seen = {}
+
+        def fake_filter(papers, negative, min_score, **kwargs):
+            seen.update(kwargs)
+            return papers, []
+
+        monkeypatch.setattr("relevance_filter.filter_papers", fake_filter)
+
+        filter_irrelevant_papers(
+            data_dir,
+            {
+                "project": {"description": "World model hub"},
+                "research": {
+                    "relevance_criteria": {"include": ["world models"], "exclude": ["MCP"]},
+                    "keywords": ["world model"],
+                },
+            },
+        )
+
+        assert seen["relevance_criteria"]["include"] == ["world models"]
+
+
+class TestSyncOptionsFromConfig:
+    """Test build passes taxonomy and relevance criteria into arXiv fallback sync."""
+
+    def test_extracts_taxonomy_relevance_and_context(self):
+        config = {
+            "project": {"description": "World model hub"},
+            "research": {
+                "taxonomy": {"paper_types": [{"label": "benchmark", "description": "Benchmarks"}]},
+                "relevance_criteria": {"include": ["world models"], "exclude": ["finance"]},
+            },
+        }
+
+        options = sync_options_from_config(config)
+
+        assert options["research_context"] == "World model hub"
+        assert options["taxonomy"]["paper_types"][0]["label"] == "benchmark"
+        assert options["relevance_criteria"]["include"] == ["world models"]
 
 
 class TestMainLogic:

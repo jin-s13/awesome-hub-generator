@@ -26,7 +26,8 @@ export type Paper = {
   title: string;
   year: number;
   venue: string;
-  category: string;
+  category?: string;
+  paper_type?: string[] | string;
   tags: string[];
   representations?: string[];
   input_modalities?: string[];
@@ -81,6 +82,23 @@ export function getPaper(id: string): Paper | undefined {
   return getPapers().find((p) => p.id === id);
 }
 
+export function paperTypeList(paper: Paper): string[] {
+  const raw = paper.paper_type;
+  const values = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  const fallback = paper.category ? [paper.category] : [];
+  return uniq([...values, ...fallback].filter(Boolean));
+}
+
+export function paperTypeLabel(paper: Paper): string {
+  const types = paperTypeList(paper);
+  return types.length > 0 ? types.join(', ') : 'method';
+}
+
+export function paperTypeFilterValue(paper: Paper): string {
+  const types = paperTypeList(paper);
+  return types.length > 0 ? types.join('|') : 'method';
+}
+
 export function getDatasets(): Resource[] {
   return loadYaml<Resource>('data/datasets.yaml').sort((a, b) => (b.year || 0) - (a.year || 0) || a.name.localeCompare(b.name));
 }
@@ -114,6 +132,6 @@ export function getStats() {
     resources: resources.length,
     sources: uniq([...papers, ...datasets, ...tools, ...resources].flatMap((x: any) => (x.sources || []).map((s: SourceRef) => s.repo))).length,
     years: uniq(papers.map((p) => p.year)).sort((a, b) => b - a),
-    categories: uniq(papers.map((p) => p.category)).sort()
+    categories: uniq(papers.flatMap((p) => paperTypeList(p))).sort()
   };
 }

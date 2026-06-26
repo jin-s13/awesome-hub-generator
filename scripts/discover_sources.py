@@ -7,7 +7,7 @@ discover_sources.py — 自动发现 GitHub 上的 awesome 项目
 
 用法:
     python scripts/discover_sources.py --keywords CAD "B-Rep"
-    python scripts/discover_sources.py  # 从 awesome.yaml 读取配置
+    python scripts/discover_sources.py --hub awesome-cad-hub  # 从本地 hub 配置读取关键词
 """
 from __future__ import annotations
 
@@ -222,6 +222,8 @@ class GitHubDiscoverer:
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="自动发现 GitHub awesome 项目")
+    parser.add_argument("--hub", default=None, help="本地 hub 名称（读取 .local/{hub}/awesome.yaml）")
+    parser.add_argument("--config", default="awesome.yaml", help="配置文件路径")
     parser.add_argument("--keywords", nargs="+", default=[], help="研究方向关键词")
     parser.add_argument("--min-stars", type=int, default=5, help="最少 star 数")
     parser.add_argument("--max-sources", type=int, default=10, help="最多返回几个源")
@@ -229,7 +231,12 @@ def main():
 
     if not args.keywords:
         import yaml
-        config = yaml.safe_load((ROOT / "awesome.yaml").read_text(encoding="utf-8"))
+        from site_paths import resolve_config_path
+        config_path = resolve_config_path(ROOT, Path.cwd(), args.config, args.hub)
+        if not config_path.exists():
+            print(f"[discover] 错误: 未找到配置文件 {config_path}")
+            return
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
         args.keywords = config.get("research", {}).get("keywords", [])
         auto = config.get("research", {}).get("auto_discover", {})
         args.min_stars = auto.get("min_stars", args.min_stars)

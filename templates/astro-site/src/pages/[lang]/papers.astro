@@ -2,7 +2,7 @@
 import Base from '../../layouts/Base.astro';
 import PaperCard from '../../components/PaperCard.astro';
 import FilterBar from '../../components/FilterBar.astro';
-import { getPapers, uniq } from '../../lib/data';
+import { getPapers, paperTypeList, uniq } from '../../lib/data';
 import { useTranslations } from '../../lib/i18n';
 import { type Lang } from '../../lib/lang';
 
@@ -14,7 +14,7 @@ const lang = Astro.params.lang as Lang;
 const _t = useTranslations(lang);
 
 const papers = getPapers();
-const categories = uniq(papers.map((p) => p.category)).sort();
+const categories = uniq(papers.flatMap((p) => paperTypeList(p))).sort();
 const years = uniq(papers.map((p) => p.year)).sort((a, b) => b - a);
 ---
 <Base title={`${_t('pages.papers.title')} · {{PROJECT_NAME}}`} lang={lang}>

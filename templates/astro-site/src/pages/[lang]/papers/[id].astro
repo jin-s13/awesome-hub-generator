@@ -1,6 +1,6 @@
 ---
 import Base from '../../../layouts/Base.astro';
-import { getPapers } from '../../../lib/data';
+import { getPapers, paperTypeLabel } from '../../../lib/data';
 import { useTranslations } from '../../../lib/i18n';
 import { localizePath, type Lang } from '../../../lib/lang';
 
@@ -37,6 +37,7 @@ const keywordEntries = score?.keyword_scores
   ? Object.entries(score.keyword_scores).sort(([, a], [, b]) => b - a)
   : [];
 const maxKeywordScore = Math.max(...keywordEntries.map(([, v]) => v), 1);
+const typeLabel = paperTypeLabel(paper);
 ---
 
 <Base title={`${paper.title} · {{PROJECT_NAME}}`} lang={lang}>
@@ -48,7 +49,7 @@ const maxKeywordScore = Math.max(...keywordEntries.map(([, v]) => v), 1);
       <div class="detail-meta">
         <span>{paper.venue} {paper.year}</span>
         {scoreLevel && <span class={`score-badge score-${scoreLevel}`}>{score.total}</span>}
-        <span class="detail-category">{paper.category}</span>
+        <span class="detail-category">{typeLabel}</span>
       </div>
     </div>
 

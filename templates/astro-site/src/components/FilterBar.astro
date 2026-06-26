@@ -52,9 +52,9 @@ const resultTemplate = _t('filter.resultCount');
 
     for (const item of items) {
       const haystack = normalize(item.dataset.search);
-      const itemCategory = normalize(item.dataset.category);
+      const itemCategories = normalize(item.dataset.category).split('|').filter(Boolean);
       const itemYear = normalize(item.dataset.year);
-      const ok = (!q || haystack.includes(q)) && (!category || itemCategory === category) && (!year || itemYear === year);
+      const ok = (!q || haystack.includes(q)) && (!category || itemCategories.includes(category)) && (!year || itemYear === year);
       item.toggleAttribute('hidden', !ok);
       if (ok) visible += 1;
     }

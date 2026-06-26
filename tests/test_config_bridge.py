@@ -7,8 +7,10 @@ from pathlib import Path
 import pytest
 
 from scripts.config_bridge import (
+    apply_researcher_env,
     awesome_to_researcher_config,
     generate_env_file,
+    researcher_env_values,
     sync_config,
 )
 
@@ -107,6 +109,32 @@ class TestGenerateEnvFile:
         content = generate_env_file(env_path=env_file, ark_api_key="sk-file-key")
         assert env_file.exists()
         assert 'CHEAP_LLM__API_KEY="sk-file-key"' in env_file.read_text(encoding="utf-8")
+
+    def test_applies_researcher_env_to_process(self, monkeypatch):
+        """Researcher direct imports need CHEAP_LLM env in the current process."""
+        monkeypatch.delenv("CHEAP_LLM__API_KEY", raising=False)
+        monkeypatch.delenv("SMART_LLM__API_KEY", raising=False)
+
+        generate_env_file(
+            ark_api_key="sk-process-key",
+            ark_base_url="https://process.api/v3",
+            ark_model_name="process-cheap",
+            smart_model_name="process-smart",
+        )
+
+        assert os.environ["CHEAP_LLM__API_KEY"] == "sk-process-key"
+        assert os.environ["CHEAP_LLM__BASE_URL"] == "https://process.api/v3"
+        assert os.environ["CHEAP_LLM__MODEL_NAME"] == "process-cheap"
+        assert os.environ["SMART_LLM__API_KEY"] == "sk-process-key"
+        assert os.environ["SMART_LLM__MODEL_NAME"] == "process-smart"
+
+    def test_researcher_env_values_can_be_applied_explicitly(self, monkeypatch):
+        monkeypatch.delenv("CHEAP_LLM__MODEL_NAME", raising=False)
+        values = researcher_env_values(ark_api_key="sk-explicit", ark_model_name="cheap")
+        apply_researcher_env(values)
+
+        assert os.environ["CHEAP_LLM__API_KEY"] == "sk-explicit"
+        assert os.environ["SMART_LLM__MODEL_NAME"] == "cheap"
 
 
 class TestSyncConfig:
