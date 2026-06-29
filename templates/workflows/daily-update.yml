@@ -41,8 +41,6 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 concurrency:
   group: daily-update
@@ -51,9 +49,6 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout site repo
         uses: actions/checkout@v4
@@ -128,22 +123,25 @@ jobs:
           npm install
           npm run build
 
-      - name: Configure GitHub Pages
+      - name: Publish GitHub Pages branch
         if: github.event.inputs.skip_build != 'true'
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
-
-      - name: Upload GitHub Pages artifact
-        if: github.event.inputs.skip_build != 'true'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: ./.local/website/dist
-
-      - name: Deploy to GitHub Pages
-        if: github.event.inputs.skip_build != 'true'
-        id: deployment
-        uses: actions/deploy-pages@v4
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          rm -rf /tmp/awesome-hub-pages
+          git worktree add --detach /tmp/awesome-hub-pages
+          cd /tmp/awesome-hub-pages
+          git switch --orphan gh-pages
+          git rm -r --ignore-unmatch .
+          cp -R "${{ github.workspace }}/.local/website/dist/." .
+          touch .nojekyll
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No GitHub Pages changes to publish"
+          else
+            git commit -m "chore: deploy pages ${{ github.sha }}"
+            git push -f origin gh-pages
+          fi
 
       - name: Commit data changes
         if: github.event_name != 'push' && github.event.inputs.skip_update != 'true'

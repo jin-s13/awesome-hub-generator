@@ -229,9 +229,11 @@ class TestAstroTemplate:
         assert "OPENALEX_MAILTO" in workflow
         assert ".local/website" in workflow
         assert "python awesome-hub-generator/scripts/update.py" in workflow
-        assert "actions/deploy-pages@v4" in workflow
-        assert "actions/upload-pages-artifact@v3" in workflow
-        assert "enablement: true" in workflow
+        assert "Publish GitHub Pages branch" in workflow
+        assert "git switch --orphan gh-pages" in workflow
+        assert "git push -f origin gh-pages" in workflow
+        assert "actions/deploy-pages@v4" not in workflow
+        assert "actions/upload-pages-artifact@v3" not in workflow
         assert "github.event_name != 'push'" in workflow
 
     def test_trends_page_normalizes_tags_and_infers_missing_years(self):
