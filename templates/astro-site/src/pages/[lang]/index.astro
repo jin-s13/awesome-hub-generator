@@ -60,30 +60,29 @@ const featured = papers
     {featured.map((paper) => <PaperCard paper={paper} lang={lang} />)}
   </div>
 
-  {(showDatasets || showTools) && <section class="split-section">
-    {showDatasets && <div>
-      <section class="section-head compact-head">
-        <div>
-          <p class="eyebrow">{_t('section.datasets')}</p>
-          <h2>{_t('section.datasetZoo')}</h2>
-        </div>
-        <a href={localizePath('/datasets', lang)}>{_t('section.viewAllDatasets')}</a>
-      </section>
-      <div class="stack-list">
-        {datasets.slice(0, 3).map((item) => <ResourceCard item={item} lang={lang} />)}
+  {showDatasets && <section class="featured-dataset-section">
+    <section class="section-head">
+      <div>
+        <p class="eyebrow">{_t('section.datasets')}</p>
+        <h2>{_t('section.datasetZoo')}</h2>
       </div>
-    </div>}
-    {showTools && <div>
-      <section class="section-head compact-head">
-        <div>
-          <p class="eyebrow">{_t('section.tools')}</p>
-          <h2>{_t('section.openSourceStack')}</h2>
-        </div>
-        <a href={localizePath('/tools', lang)}>{_t('section.viewAllTools')}</a>
-      </section>
-      <div class="stack-list">
-        {tools.slice(0, 3).map((item) => <ResourceCard item={item} lang={lang} />)}
+      <a href={localizePath('/datasets', lang)}>{_t('section.viewAllDatasets')}</a>
+    </section>
+    <div class="card-grid papers-grid featured-dataset-grid">
+      {datasets.slice(0, 3).map((item) => <ResourceCard item={item} mode="paper" lang={lang} />)}
+    </div>
+  </section>}
+
+  {showTools && <section>
+    <section class="section-head compact-head">
+      <div>
+        <p class="eyebrow">{_t('section.tools')}</p>
+        <h2>{_t('section.openSourceStack')}</h2>
       </div>
-    </div>}
+      <a href={localizePath('/tools', lang)}>{_t('section.viewAllTools')}</a>
+    </section>
+    <div class="stack-list">
+      {tools.slice(0, 3).map((item) => <ResourceCard item={item} lang={lang} />)}
+    </div>
   </section>}
 </Base>

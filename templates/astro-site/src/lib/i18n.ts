@@ -21,8 +21,8 @@ const translations: Record<string, Record<Lang, string>> = {
   // index.astro - Hero
   'hero.eyebrow': { en: 'Research papers, datasets, and open-source tooling', zh: '研究论文、数据集与开源工具' },
   'hero.description': {
-    en: 'Automatically curated from arXiv papers. Built with <a href="https://github.com/{{GENERATOR_REPO}}">awesome-hub-generator</a>.',
-    zh: '自动从 arXiv 论文中精选。基于 <a href="https://github.com/{{GENERATOR_REPO}}">awesome-hub-generator</a> 构建。',
+    en: 'Automatically curated from research paper sources. Built with <a href="https://github.com/{{GENERATOR_REPO}}">awesome-hub-generator</a>.',
+    zh: '自动从多来源研究论文中精选。基于 <a href="https://github.com/{{GENERATOR_REPO}}">awesome-hub-generator</a> 构建。',
   },
   'hero.explorePapers': { en: 'Explore papers', zh: '浏览论文' },
   'hero.browseTools': { en: 'Browse tools', zh: '浏览工具' },
@@ -50,8 +50,8 @@ const translations: Record<string, Record<Lang, string>> = {
   'pages.papers.eyebrow': { en: 'Research index', zh: '研究索引' },
   'pages.papers.title': { en: 'Papers', zh: '论文' },
   'pages.papers.description': {
-    en: 'Automatically collected and categorized papers from arXiv.',
-    zh: '从 arXiv 自动收集并分类的论文。',
+    en: 'Automatically collected and categorized papers from arXiv, upstream awesome lists, and other research sources.',
+    zh: '从 arXiv、上游 awesome 列表和其他研究源自动收集并分类的论文。',
   },
 
   // analysis.astro
@@ -77,6 +77,12 @@ const translations: Record<string, Record<Lang, string>> = {
     en: 'Datasets grouped by representation and task.',
     zh: '按表示方法和任务分组的数据集。',
   },
+  'dataset.backToDatasets': { en: '← Back to datasets', zh: '← 返回数据集列表' },
+  'dataset.analysis': { en: 'Dataset Analysis', zh: '数据集分析' },
+  'dataset.provenance': { en: 'Provenance', zh: '来源线索' },
+  'dataset.provenanceText': { en: 'Collected from {0}.', zh: '来源：{0}。' },
+  'dataset.provenanceUnknown': { en: 'Source metadata is not available.', zh: '暂无明确来源元数据。' },
+  'dataset.relatedPapers': { en: 'Related papers', zh: '关联论文' },
 
   // tools.astro
   'pages.tools.eyebrow': { en: 'Open-source stack', zh: '开源技术栈' },
@@ -127,6 +133,8 @@ const translations: Record<string, Record<Lang, string>> = {
   // PaperCard.astro
   'paperCard.analysis': { en: 'Analysis', zh: '解读' },
   'paperCard.details': { en: 'Details', zh: '详情' },
+  'paperList.loadMore': { en: 'Show more papers', zh: '加载更多论文' },
+  'paperList.empty': { en: 'No papers match current filters.', zh: '没有匹配当前筛选的论文。' },
 
   // FilterBar.astro
   'filter.search': { en: 'Search', zh: '搜索' },

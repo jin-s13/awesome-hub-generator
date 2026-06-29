@@ -1,6 +1,6 @@
 ---
 import { t, useTranslations } from '../lib/i18n';
-import { getLang, localizePath, alternateLang, type Lang } from '../lib/lang';
+import { assetPath, getLang, localizePath, alternateLang, unbasePath, type Lang } from '../lib/lang';
 
 const { title = '{{PROJECT_NAME}}', description = '{{PROJECT_DESCRIPTION}}', lang: _lang } = Astro.props;
 const lang: Lang = _lang || getLang(Astro.url);
@@ -23,6 +23,7 @@ const nav = [
 ].filter((item): item is { href: string; label: string } => Boolean(item));
 const githubUrl = '{{GITHUB_URL}}';
 const altUrl = localizePath(Astro.url.pathname, altLang);
+const currentPath = localizePath(unbasePath(Astro.url.pathname), lang);
 ---
 <!doctype html>
 <html lang={lang}>
@@ -31,8 +32,8 @@ const altUrl = localizePath(Astro.url.pathname, altLang);
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content={description} />
     <title>{title}</title>
-    <link rel="icon" href="/favicon.svg" />
-    <link rel="stylesheet" href="/styles/global.css" />
+    <link rel="icon" href={assetPath('/favicon.svg')} />
+    <link rel="stylesheet" href={assetPath('/styles/global.css')} />
   </head>
   <body>
     <div class="site-shell">
@@ -46,7 +47,7 @@ const altUrl = localizePath(Astro.url.pathname, altLang);
         </a>
         <nav class="nav">
           {nav.map((item) => (
-            <a class:list={[Astro.url.pathname === item.href && 'active']} href={item.href}>{item.label}</a>
+            <a class:list={[currentPath === item.href && 'active']} href={item.href}>{item.label}</a>
           ))}
         </nav>
         <div class="header-actions">

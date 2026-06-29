@@ -472,12 +472,12 @@ def paper_to_yaml(paper: Dict, classification: Dict, source_repo: str = "arxiv")
         "authors": paper.get("authors", []),
         "abstract": paper.get("abstract", ""),
         "year": year,
-        "venue": infer_venue(paper.get("categories", [])),
+        "venue": paper.get("venue") or infer_venue(paper.get("categories", [])),
         "paper_type": paper_type,
         "tags": tags[:8],
         "links": paper.get("links", {}),
         "preview": "/assets/placeholder.svg",
-        "sources": [{"repo": source_repo}],
+        "sources": paper.get("sources") or [{"repo": source_repo}],
     }
 
     # 动态添加 taxonomy dimensions（techniques, inputs, outputs 等）

@@ -169,7 +169,7 @@ def _dataset_name_from_paper(title: str) -> str:
     title = (title or "").strip()
     if not title:
         return "Unnamed Dataset"
-    for sep in (":", " -- ", " - "):
+    for sep in (":", "：", " -- ", " - "):
         if sep in title:
             head = title.split(sep, 1)[0].strip()
             if 2 <= len(head) <= 80:
@@ -214,9 +214,12 @@ def derive_datasets_from_papers(papers: Iterable[dict]) -> List[dict]:
         if not isinstance(paper, dict) or not _paper_mentions_dataset(paper):
             continue
         name = _dataset_name_from_paper(paper.get("title", ""))
+        name_zh = _dataset_name_from_paper(paper.get("title_cn", ""))
         links = {k: v for k, v in (paper.get("links") or {}).items() if v}
         abstract = str(paper.get("abstract") or "")
         description = paper.get("tldr") or abstract[:240] + ("..." if len(abstract) > 240 else "")
+        description_zh = paper.get("tldr_cn") or paper.get("abstract_cn")
+        paper_url = links.get("paper") or ""
         item = {
             "id": f"paper-{paper.get('id') or _slugify(name)}",
             "name": name,
@@ -225,9 +228,25 @@ def derive_datasets_from_papers(papers: Iterable[dict]) -> List[dict]:
             "links": links,
             "sources": [{"repo": "papers", "category": "dataset"}],
             "notes": f"Derived from paper: {paper.get('title', name)}",
+            "related_papers": [
+                {
+                    "id": paper.get("id", ""),
+                    "title": paper.get("title", ""),
+                    "url": paper_url,
+                }
+            ],
         }
+        if name_zh:
+            item["name_zh"] = name_zh
+        if description_zh:
+            item["description_zh"] = description_zh
+        if paper.get("title_cn"):
+            item["notes_zh"] = f"派生自论文：{paper['title_cn']}"
+            item["related_papers"][0]["title_zh"] = paper["title_cn"]
         if paper.get("year"):
             item["year"] = paper["year"]
+        if paper.get("preview"):
+            item["preview"] = paper["preview"]
         derived.append(item)
     return derived
 
@@ -305,17 +324,36 @@ def associate_datasets_with_papers(datasets: List[dict], papers: List[dict]) -> 
             if isinstance(paper_links, dict):
                 paper_url = paper_links.get("paper") or ""
             related_key = paper.get("id") or paper_url
+            for entry in related:
+                if not isinstance(entry, dict):
+                    continue
+                entry_key = entry.get("id") or entry.get("url")
+                if entry_key == related_key and paper.get("title_cn") and not entry.get("title_zh"):
+                    entry["title_zh"] = paper["title_cn"]
             if related_key and related_key not in related_keys:
-                related.append(
-                    {
-                        "id": paper.get("id", ""),
-                        "title": paper.get("title", ""),
-                        "url": paper_url,
-                    }
-                )
+                related_entry = {
+                    "id": paper.get("id", ""),
+                    "title": paper.get("title", ""),
+                    "url": paper_url,
+                }
+                if paper.get("title_cn"):
+                    related_entry["title_zh"] = paper["title_cn"]
+                related.append(related_entry)
                 related_keys.add(related_key)
             if paper_url and not links.get("paper"):
                 links["paper"] = paper_url
+            paper_preview = str(paper.get("preview") or "")
+            current_preview = str(item.get("preview") or "")
+            if paper_preview and (not current_preview or current_preview.endswith("placeholder.svg")):
+                item["preview"] = paper_preview
+            if paper.get("title_cn") and not item.get("name_zh"):
+                item["name_zh"] = _dataset_name_from_paper(paper["title_cn"])
+            if paper.get("tldr_cn") and not item.get("description_zh"):
+                item["description_zh"] = paper["tldr_cn"]
+            elif paper.get("abstract_cn") and not item.get("description_zh"):
+                item["description_zh"] = paper["abstract_cn"]
+            if paper.get("title_cn") and not item.get("notes_zh") and item.get("id") == f"paper-{paper.get('id')}":
+                item["notes_zh"] = f"派生自论文：{paper['title_cn']}"
         item["links"] = links
         if related:
             item["related_papers"] = related
@@ -351,6 +389,7 @@ def sync_datasets(data_dir: Path, config: dict) -> Dict[str, int]:
 
     incoming = associate_datasets_with_papers(hf_items + derived_items, papers)
     merged, added = merge_dataset_entries(existing, incoming)
+    merged = associate_datasets_with_papers(merged, papers)
 
     datasets_path.parent.mkdir(parents=True, exist_ok=True)
     datasets_path.write_text(

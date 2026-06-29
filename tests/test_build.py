@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from scripts.build import (
+    infer_base_path,
     load_config,
     render_template,
     generate_readme_with_table,
@@ -74,6 +75,17 @@ class TestAstroTemplate:
         assert "const categories" not in datasets_page
         assert "categories=" not in datasets_page
 
+    def test_project_site_url_path_is_used_as_astro_base(self):
+        root = Path(__file__).resolve().parents[1]
+        config = (root / "templates/astro-site/astro.config.mjs").read_text(encoding="utf-8")
+        lang_lib = (root / "templates/astro-site/src/lib/lang.ts").read_text(encoding="utf-8")
+
+        assert "base: '{{BASE_PATH}}' || undefined" in config
+        assert "const BASE_PATH = '{{BASE_PATH}}'" in lang_lib
+        assert infer_base_path({"site_url": "https://jin-s13.github.io/awesome-world-model-hub"}) == "/awesome-world-model-hub"
+        assert infer_base_path({"site_url": "https://jin-s13.github.io"}) == ""
+        assert infer_base_path({"base_path": "/custom", "site_url": "https://example.com/ignored"}) == "/custom"
+
     def test_analysis_page_is_aggregate_analysis_without_survey_paper_grid(self):
         root = Path(__file__).resolve().parents[1]
         analysis_page = root / "templates/astro-site/src/pages/[lang]/analysis.astro"
@@ -106,11 +118,18 @@ class TestAstroTemplate:
         assert "label_zh?: string" in data_lib
         assert "description_zh?: string" in data_lib
         assert "related_work_outline_zh?: string[]" in data_lib
+        assert "literature_review?: Record<string, unknown>" in data_lib
         assert "const surveyTopics = getSurveys()" in analysis_page
-        assert "related_work_outline" in analysis_page
+        assert "localizedReview" in analysis_page
+        assert "reviewKeyMap" in analysis_page
+        assert "Literature review synthesis" in analysis_page
+        assert "文献综述归纳" in analysis_page
+        assert "Research Lines" in analysis_page
+        assert "研究路线" in analysis_page
         assert "localizedTopicLabel" in analysis_page
-        assert "localizedOutline" in analysis_page
         assert "componentLabel" in analysis_page
+        assert 'class="survey-paper-list"' not in analysis_page
+        assert "survey-paper-link" not in analysis_page
 
     def test_paper_card_does_not_render_duplicate_source_row(self):
         root = Path(__file__).resolve().parents[1]
@@ -128,12 +147,91 @@ class TestAstroTemplate:
         assert "detail-link" not in paper_card
         assert "paperCard.details" not in paper_card
 
+    def test_papers_page_uses_progressive_grid_for_large_indexes(self):
+        root = Path(__file__).resolve().parents[1]
+        papers_page = (root / "templates/astro-site/src/pages/[lang]/papers.astro").read_text(encoding="utf-8")
+        progressive_grid = (root / "templates/astro-site/src/components/ProgressivePaperGrid.astro").read_text(encoding="utf-8")
+        filter_bar = (root / "templates/astro-site/src/components/FilterBar.astro").read_text(encoding="utf-8")
+
+        assert "ProgressivePaperGrid" in papers_page
+        assert "papers.map((paper) => <PaperCard" not in papers_page
+        assert "INITIAL_VISIBLE_COUNT" in progressive_grid
+        assert "BATCH_SIZE" in progressive_grid
+        assert "data-progressive-grid" in progressive_grid
+        assert "hub-filter-change" in filter_bar
+        assert "hub-filter-count" in filter_bar
+
     def test_resource_card_uses_readable_link_labels(self):
         root = Path(__file__).resolve().parents[1]
         resource_card = (root / "templates/astro-site/src/components/ResourceCard.astro").read_text(encoding="utf-8")
 
         assert "linkLabelMap" in resource_card
         assert "{linkLabel(key)}" in resource_card
+
+    def test_home_featured_datasets_use_paper_like_cards(self):
+        root = Path(__file__).resolve().parents[1]
+        index_page = (root / "templates/astro-site/src/pages/[lang]/index.astro").read_text(encoding="utf-8")
+        resource_card = (root / "templates/astro-site/src/components/ResourceCard.astro").read_text(encoding="utf-8")
+        data_lib = (root / "templates/astro-site/src/lib/data.ts").read_text(encoding="utf-8")
+
+        assert "featured-dataset-section" in index_page
+        assert "featured-dataset-grid" in index_page
+        assert "{showDatasets && <section class=\"featured-dataset-section\">" in index_page
+        assert '<ResourceCard item={item} mode="paper" lang={lang}' in index_page
+        assert "datasets.slice(0, 3)" in index_page
+        assert "preview?: string" in data_lib
+        assert "related_papers?: RelatedPaperRef[]" in data_lib
+        assert 'mode === "paper"' in resource_card
+        assert "detailHref" in resource_card
+        assert "preview-wrap" in resource_card
+        assert "paper-body" in resource_card
+        assert "target=\"_blank\"" not in resource_card.split("preview-wrap", 1)[1].split("</a>", 1)[0]
+
+    def test_dataset_detail_page_exists(self):
+        root = Path(__file__).resolve().parents[1]
+        detail_page = root / "templates/astro-site/src/pages/[lang]/datasets/[id].astro"
+        content = detail_page.read_text(encoding="utf-8")
+        data_lib = (root / "templates/astro-site/src/lib/data.ts").read_text(encoding="utf-8")
+
+        assert detail_page.exists()
+        assert "getDataset" in content
+        assert "related_papers" in content
+        assert "dataset.analysis" in content
+        assert "preview-wrap detail-preview" in content
+        assert "localizedTitle" in content
+        assert "localizedDescription" in content
+        assert "localizedNotes" in content
+        assert "relatedPaperTitle" in content
+        assert "name_zh?: string" in data_lib
+        assert "description_zh?: string" in data_lib
+        assert "notes_zh?: string" in data_lib
+        assert "title_zh?: string" in data_lib
+
+    def test_datasets_page_uses_localized_media_cards(self):
+        root = Path(__file__).resolve().parents[1]
+        datasets_page = (root / "templates/astro-site/src/pages/[lang]/datasets.astro").read_text(encoding="utf-8")
+        resource_card = (root / "templates/astro-site/src/components/ResourceCard.astro").read_text(encoding="utf-8")
+
+        assert '<ResourceCard item={item} mode="paper" lang={lang}' in datasets_page
+        assert "localizedTitle" in resource_card
+        assert "localizedDescription" in resource_card
+        assert "item.name_zh" in resource_card
+        assert "item.description_zh" in resource_card
+
+    def test_daily_update_workflow_template_is_configured_for_world_model_hub(self):
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / "templates/workflows/daily-update.yml").read_text(encoding="utf-8")
+
+        assert "cron: '0 0 * * *'" in workflow
+        assert "jin-s13/awesome-hub-generator" in workflow
+        assert "your-org/awesome-hub-generator" not in workflow
+        assert "OPENALEX_API_KEY" in workflow
+        assert "OPENALEX_MAILTO" in workflow
+        assert ".local/website" in workflow
+        assert "python awesome-hub-generator/scripts/update.py" in workflow
+        assert "actions/deploy-pages@v4" in workflow
+        assert "actions/upload-pages-artifact@v3" in workflow
+        assert "github.event_name != 'push'" in workflow
 
     def test_trends_page_normalizes_tags_and_infers_missing_years(self):
         root = Path(__file__).resolve().parents[1]

@@ -24,6 +24,6 @@ const years = uniq(datasets.map((d) => d.year).filter(Boolean) as number[]).sort
   </section>
   <FilterBar years={years} placeholder={_t('filter.search') + ' by dataset, representation, task, source...'} lang={lang} />
   <div class="card-grid resource-grid">
-    {datasets.map((item) => <ResourceCard item={item} lang={lang} />)}
+    {datasets.map((item) => <ResourceCard item={item} mode="paper" lang={lang} />)}
   </div>
 </Base>

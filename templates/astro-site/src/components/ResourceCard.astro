@@ -1,16 +1,22 @@
 ---
 import type { Resource } from '../lib/data';
 import { useTranslations } from '../lib/i18n';
-import { type Lang } from '../lib/lang';
+import { assetPath, localizePath, type Lang } from '../lib/lang';
 const { item, mode = 'resource', lang: _lang = 'en' } = Astro.props as { item: Resource; mode?: string; lang?: Lang };
 const lang: Lang = _lang;
 const _t = useTranslations(lang);
-const title = item.name;
+const localizedTitle = lang === 'zh' && item.name_zh ? item.name_zh : item.name;
+const localizedDescription = lang === 'zh' && item.description_zh ? item.description_zh : item.description;
+const title = localizedTitle;
 const subtitle = item.type || item.category || '';
 const meta = [subtitle, item.year].filter(Boolean).join(' · ');
 const linkEntries = Object.entries(item.links || {}).filter(([, value]) => value);
+const primaryHref = linkEntries[0]?.[1] || '#';
+const detailHref = item.id ? localizePath(`/datasets/${item.id}`, lang) : primaryHref;
 const sourceRepos = (item.sources || []).map((s) => s.repo).join(', ');
-const searchText = [title, subtitle, item.year, item.description, ...(item.tags || []), ...(item.language || []), ...(item.kernel || []), sourceRepos].join(' ').toLowerCase();
+const searchText = [item.name, item.name_zh, subtitle, item.year, item.description, item.description_zh, ...(item.tags || []), ...(item.language || []), ...(item.kernel || []), sourceRepos].join(' ').toLowerCase();
+const isPaperLike = mode === "paper";
+const preview = assetPath(item.preview || '/assets/placeholder.svg');
 const linkLabelMap: Record<string, { en: string; zh: string }> = {
   paper: { en: 'Paper', zh: '论文' },
   pdf: { en: 'PDF', zh: 'PDF' },
@@ -32,23 +38,45 @@ function linkLabel(key: string) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 ---
-<article class="resource-card filter-item" data-search={searchText} data-category={subtitle} data-year={item.year || ''}>
-  <div class="resource-head">
-    <div>
-      {meta && <p class="eyebrow">{meta}</p>}
-      <h3>{title}</h3>
+{isPaperLike ? (
+  <article class="paper-card resource-card media-resource-card filter-item" data-search={searchText} data-category={subtitle} data-year={item.year || ''}>
+    <a href={detailHref} class="preview-wrap">
+      <img src={preview} alt={`Preview for ${title}`} loading="lazy" />
+    </a>
+    <div class="paper-body">
+      <div class="paper-meta">
+        <span>{meta || _t('nav.datasets')}</span>
+        {subtitle && <span>{subtitle}</span>}
+      </div>
+      <h3><a href={detailHref}>{title}</a></h3>
+      <p class="paper-tldr">{localizedDescription}</p>
+      <div class="tag-row">
+        {(item.tags || []).slice(0, 6).map((tag) => <span class="tag">{tag}</span>)}
+      </div>
+      <div class="link-row">
+        {linkEntries.map(([key, value]) => <a href={value} target="_blank" rel="noreferrer">{linkLabel(key)}</a>)}
+      </div>
     </div>
-  </div>
-  <p>{item.description}</p>
-  <div class="tag-row">
-    {(item.tags || []).slice(0, 8).map((tag) => <span class="tag">{tag}</span>)}
-  </div>
-  {item.language && item.language.length > 0 && <p class="compact"><strong>{_t('resource.language')}</strong> {item.language.join(', ')}</p>}
-  {item.kernel && item.kernel.length > 0 && <p class="compact"><strong>{_t('resource.kernel')}</strong> {item.kernel.join(', ')}</p>}
-  <div class="link-row">
-    {linkEntries.map(([key, value]) => <a href={value} target="_blank" rel="noreferrer">{linkLabel(key)}</a>)}
-  </div>
-  <div class="source-row" title={sourceRepos}>
-    {(item.sources || []).map((source) => <span>{source.repo.split('/')[0]}</span>)}
-  </div>
-</article>
+  </article>
+) : (
+  <article class="resource-card filter-item" data-search={searchText} data-category={subtitle} data-year={item.year || ''}>
+    <div class="resource-head">
+      <div>
+        {meta && <p class="eyebrow">{meta}</p>}
+        <h3>{title}</h3>
+      </div>
+    </div>
+    <p>{localizedDescription}</p>
+    <div class="tag-row">
+      {(item.tags || []).slice(0, 8).map((tag) => <span class="tag">{tag}</span>)}
+    </div>
+    {item.language && item.language.length > 0 && <p class="compact"><strong>{_t('resource.language')}</strong> {item.language.join(', ')}</p>}
+    {item.kernel && item.kernel.length > 0 && <p class="compact"><strong>{_t('resource.kernel')}</strong> {item.kernel.join(', ')}</p>}
+    <div class="link-row">
+      {linkEntries.map(([key, value]) => <a href={value} target="_blank" rel="noreferrer">{linkLabel(key)}</a>)}
+    </div>
+    <div class="source-row" title={sourceRepos}>
+      {(item.sources || []).map((source) => <span>{source.repo.split('/')[0]}</span>)}
+    </div>
+  </article>
+)}

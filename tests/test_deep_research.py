@@ -68,9 +68,13 @@ def test_build_deep_research_queue_writes_manifest_and_report(tmp_path: Path):
     assert manifest["runs"][0]["papers"][0]["id"] == "paper-high"
     assert manifest["runs"][0]["papers"][0]["verification"]["state"] == "not_checked"
     assert manifest["runs"][0]["artifacts"][0]["path"] == "resource/paper-high/research.md"
+    assert manifest["runs"][0]["papers"][0]["critique"]["concerns"]
+    assert manifest["runs"][0]["papers"][0]["next_actions"]
     assert report.exists()
     report_text = report.read_text(encoding="utf-8")
     assert "High Priority Paper" in report_text
+    assert "## Critique" in report_text
+    assert "## Next Research Actions" in report_text
     assert "## Claim Extraction" in report_text
     assert "## Evidence and Verification" in report_text
     assert "datasets, baselines, metrics" in report_text

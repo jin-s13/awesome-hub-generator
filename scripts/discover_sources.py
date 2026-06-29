@@ -175,6 +175,30 @@ class GitHubDiscoverer:
 
         return result
 
+    def source_from_repo(self, full_name: str) -> SourceInfo:
+        """Return SourceInfo for a configured owner/repo string.
+
+        Explicit upstream repos are more stable than GitHub Search for known
+        high-quality awesome lists. If the metadata request is unavailable,
+        fall back to a minimal SourceInfo so raw README fetching can still try
+        common branches.
+        """
+        normalized = full_name.strip().strip("/")
+        url = f"https://api.github.com/repos/{normalized}"
+        try:
+            resp = self.session.get(url, timeout=30)
+            if resp.status_code == 200:
+                return self._item_to_source(resp.json())
+        except Exception:
+            pass
+        return SourceInfo(
+            full_name=normalized,
+            html_url=f"https://github.com/{normalized}",
+            stars=0,
+            description="",
+            default_branch="main",
+        )
+
     def fetch_readme(self, source: SourceInfo) -> Optional[str]:
         """获取上游项目的 README.md 内容"""
         for branch in (source.default_branch, "main", "master"):

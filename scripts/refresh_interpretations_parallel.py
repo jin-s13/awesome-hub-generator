@@ -38,11 +38,23 @@ def _score_total(paper: Dict[str, Any]) -> float:
 
 def english_pending(paper: Dict[str, Any]) -> bool:
     """Return true if English scoring/TLDR/analysis should run."""
+    return english_pending_for(paper, deep_threshold=30, force_analysis=False)
+
+
+def english_pending_for(
+    paper: Dict[str, Any],
+    *,
+    deep_threshold: float,
+    force_analysis: bool = False,
+) -> bool:
+    """Return true if English scoring/TLDR/analysis should run."""
     if not paper.get("title") or not paper.get("abstract"):
         return False
     if not paper.get("tldr") or not paper.get("reasoning"):
         return True
-    return _score_total(paper) >= 30 and not paper.get("analysis")
+    if paper.get("analysis"):
+        return False
+    return force_analysis or _score_total(paper) >= deep_threshold
 
 
 def requested_chinese_fields(paper: Dict[str, Any]) -> List[str]:
@@ -82,6 +94,7 @@ def _process_paper(
     english: bool,
     chinese: bool,
     deep_threshold: float,
+    force_analysis: bool,
     sleep_seconds: float,
 ) -> Tuple[int, Dict[str, Any], List[str]]:
     """Process a single paper and return updates plus human-readable events."""
@@ -91,7 +104,7 @@ def _process_paper(
     updates: Dict[str, Any] = {}
     events: List[str] = []
 
-    if english and english_pending(working):
+    if english and english_pending_for(working, deep_threshold=deep_threshold, force_analysis=force_analysis):
         if not working.get("tldr") or not working.get("reasoning"):
             result = gi.generate_tldr_and_reasoning(title, abstract, keywords)
             if result.get("tldr"):
@@ -114,7 +127,7 @@ def _process_paper(
             if sleep_seconds:
                 time.sleep(sleep_seconds)
 
-        if _score_total(working) >= deep_threshold and not working.get("analysis"):
+        if (force_analysis or _score_total(working) >= deep_threshold) and not working.get("analysis"):
             analysis = gi.generate_deep_analysis(title, abstract)
             if analysis:
                 updates["analysis"] = analysis
@@ -167,6 +180,11 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--english-only", action="store_true")
     parser.add_argument("--chinese-only", action="store_true")
+    parser.add_argument(
+        "--force-analysis",
+        action="store_true",
+        help="Generate deep analysis for every paper missing analysis, ignoring the score threshold.",
+    )
     parser.add_argument("--sleep", type=float, default=0.0)
     args = parser.parse_args()
 
@@ -192,6 +210,11 @@ def main() -> int:
         if isinstance(paper, dict)
         and (
             (english and english_pending(paper))
+            or (english and english_pending_for(
+                paper,
+                deep_threshold=deep_threshold,
+                force_analysis=args.force_analysis,
+            ))
             or (chinese and requested_chinese_fields(paper))
         )
     ]
@@ -214,6 +237,7 @@ def main() -> int:
             english=english,
             chinese=chinese,
             deep_threshold=deep_threshold,
+            force_analysis=args.force_analysis,
             sleep_seconds=max(0.0, args.sleep),
         ): idx
         for idx, paper in pending

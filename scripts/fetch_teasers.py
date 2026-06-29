@@ -10,6 +10,8 @@ Multi-source fallback (in order):
 """
 
 import io
+import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import os
 import re
@@ -46,6 +48,9 @@ for _env_path in [SITE_DIR / ".env", ROOT / ".env"]:
         break
 
 logger = logging.getLogger("fetch_teasers")
+GENERATED_FALLBACK_TEASER_NOTE = "generated_fallback_teaser"
+UNRESOLVED_TEASER_FALLBACK_WARNING = "warning_unresolved_teaser_fallback"
+TEASER_FALLBACK_NOTES = {GENERATED_FALLBACK_TEASER_NOTE, UNRESOLVED_TEASER_FALLBACK_WARNING}
 
 DATA_DIR = Path(os.environ.get("HUB_DATA_DIR", str(SITE_DIR / ".local/data")))
 ASSETS_DIR = Path(os.environ.get("HUB_ASSETS_DIR", str(SITE_DIR / ".local/assets/papers")))
@@ -500,6 +505,57 @@ def _load_image_localization_config() -> Dict[str, Any]:
     return {}
 
 
+def _should_fetch_teaser_preview(preview: str, retry_fallbacks: bool = True) -> bool:
+    """Return True when the current preview is missing or only a generated fallback."""
+    if not preview:
+        return True
+    if "/assets/placeholder.svg" in preview:
+        return True
+    if retry_fallbacks and preview.endswith("/teaser.svg"):
+        return True
+    return False
+
+
+def _is_teaser_fallback_preview(preview: str) -> bool:
+    """Return True for missing, placeholder, or generated SVG teaser previews."""
+    return not preview or "/assets/placeholder.svg" in preview or preview.endswith("/teaser.svg")
+
+
+def _ensure_generation_note(paper: Dict[str, Any], note: str) -> None:
+    notes = paper.get("generation_notes")
+    if not isinstance(notes, list):
+        notes = []
+    if note not in notes:
+        notes.append(note)
+    paper["generation_notes"] = notes
+
+
+def _remove_teaser_fallback_warnings(paper: Dict[str, Any]) -> bool:
+    notes = paper.get("generation_notes")
+    if not isinstance(notes, list):
+        return False
+    cleaned = [note for note in notes if note not in TEASER_FALLBACK_NOTES]
+    if cleaned == notes:
+        return False
+    paper["generation_notes"] = cleaned
+    if not paper["generation_notes"]:
+        paper.pop("generation_notes", None)
+    return True
+
+
+def _mark_teaser_fallback_warning(paper: Dict[str, Any], reason: str) -> bool:
+    before = list(paper.get("generation_notes") or [])
+    _ensure_generation_note(paper, GENERATED_FALLBACK_TEASER_NOTE)
+    _ensure_generation_note(paper, UNRESOLVED_TEASER_FALLBACK_WARNING)
+    logger.warning(
+        "TEASER FALLBACK UNRESOLVED: %s preview=%s reason=%s",
+        paper.get("id", "<missing-id>"),
+        paper.get("preview", ""),
+        reason,
+    )
+    return before != paper.get("generation_notes", [])
+
+
 def fetch_teaser_for_paper(paper: Dict[str, Any]) -> Optional[str]:
     """
     Fetch teaser image for a single paper using multi-source fallback.
@@ -572,7 +628,7 @@ def _teaser_timeout_handler(signum, frame):
     raise _TeaserTimeout()
 
 
-def main():
+def main(retry_fallbacks: bool = True, workers: int = 1):
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
     papers_path = DATA_DIR / "papers.yaml"
@@ -587,41 +643,93 @@ def main():
 
     logger.info(f"Fetching teasers for {len(papers)} papers...")
     success_count = 0
-    skip_count = 0
+    metadata_changed = False
     save_interval = 10
     since_save = 0
+    workers = max(1, workers)
+    candidates = [paper for paper in papers if _should_fetch_teaser_preview(paper.get("preview", ""), retry_fallbacks=retry_fallbacks)]
+    skip_count = len(papers) - len(candidates)
+
+    def save_progress() -> None:
+        papers_path.write_text(
+            yaml.dump(papers, allow_unicode=True, sort_keys=False, default_flow_style=False),
+            encoding="utf-8",
+        )
 
     signal.signal(signal.SIGALRM, _teaser_timeout_handler)
 
+    logger.info(f"Retry fallbacks: {retry_fallbacks}; candidates: {len(candidates)}; skipped: {skip_count}; workers: {workers}")
+
+    if workers == 1:
+        for paper in candidates:
+            try:
+                signal.alarm(120)
+                result = fetch_teaser_for_paper(paper)
+                signal.alarm(0)
+                if result:
+                    paper["preview"] = result
+                    _remove_teaser_fallback_warnings(paper)
+                    success_count += 1
+                    since_save += 1
+                elif _is_teaser_fallback_preview(paper.get("preview", "")):
+                    _mark_teaser_fallback_warning(paper, "real teaser fetch failed")
+            except _TeaserTimeout:
+                signal.alarm(0)
+                logger.warning(f"    Timeout (120s) for {paper.get('id')}, skipping")
+                if _is_teaser_fallback_preview(paper.get("preview", "")):
+                    _mark_teaser_fallback_warning(paper, "timeout while fetching real teaser")
+            except Exception as e:
+                signal.alarm(0)
+                logger.warning(f"    Error for {paper.get('id')}: {e}, skipping")
+                if _is_teaser_fallback_preview(paper.get("preview", "")):
+                    _mark_teaser_fallback_warning(paper, f"error while fetching real teaser: {e}")
+
+            time.sleep(0.5)
+            if since_save >= save_interval:
+                save_progress()
+                logger.info(f"  [checkpoint] saved {success_count} new teasers so far")
+                since_save = 0
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(fetch_teaser_for_paper, paper): paper for paper in candidates}
+            for future in as_completed(futures):
+                paper = futures[future]
+                try:
+                    result = future.result()
+                except Exception as e:
+                    logger.warning(f"    Error for {paper.get('id')}: {e}, skipping")
+                    if _is_teaser_fallback_preview(paper.get("preview", "")):
+                        metadata_changed = _mark_teaser_fallback_warning(paper, f"error while fetching real teaser: {e}") or metadata_changed
+                    continue
+                if result:
+                    paper["preview"] = result
+                    _remove_teaser_fallback_warnings(paper)
+                    success_count += 1
+                    since_save += 1
+                elif _is_teaser_fallback_preview(paper.get("preview", "")):
+                    _mark_teaser_fallback_warning(paper, "real teaser fetch failed")
+                if since_save >= save_interval:
+                    save_progress()
+                    logger.info(f"  [checkpoint] saved {success_count} new teasers so far")
+                    since_save = 0
+
+    fallback_count = 0
     for paper in papers:
         preview = paper.get("preview", "")
-        if preview and "/assets/placeholder.svg" not in preview:
-            skip_count += 1
-            continue
+        if _is_teaser_fallback_preview(preview):
+            fallback_count += 1
+            metadata_changed = _mark_teaser_fallback_warning(
+                paper,
+                "final preview remains fallback; requires follow-up investigation",
+            ) or metadata_changed
+        else:
+            metadata_changed = _remove_teaser_fallback_warnings(paper) or metadata_changed
 
-        try:
-            signal.alarm(120)
-            result = fetch_teaser_for_paper(paper)
-            signal.alarm(0)
-            if result:
-                paper["preview"] = result
-                success_count += 1
-                since_save += 1
-        except _TeaserTimeout:
-            signal.alarm(0)
-            logger.warning(f"    Timeout (120s) for {paper.get('id')}, skipping")
-        except Exception as e:
-            signal.alarm(0)
-            logger.warning(f"    Error for {paper.get('id')}: {e}, skipping")
-
-        time.sleep(0.5)
-        if since_save >= save_interval:
-            papers_path.write_text(
-                yaml.dump(papers, allow_unicode=True, sort_keys=False, default_flow_style=False),
-                encoding="utf-8",
-            )
-            logger.info(f"  [checkpoint] saved {success_count} new teasers so far")
-            since_save = 0
+    if fallback_count:
+        logger.warning(
+            "TEASER FALLBACK SUMMARY: %s papers still use fallback previews and require investigation.",
+            fallback_count,
+        )
 
     # === 图片本地化步骤 ===
     il_config = _load_image_localization_config()
@@ -679,15 +787,27 @@ def main():
             )
             logger.info(f"Localized {localize_count} images")
 
-    if success_count > 0:
-        papers_path.write_text(
-            yaml.dump(papers, allow_unicode=True, sort_keys=False, default_flow_style=False),
-            encoding="utf-8",
-        )
+    if success_count > 0 or metadata_changed:
+        save_progress()
         logger.info(f"Updated papers.yaml with {success_count} new teasers")
 
     logger.info(f"Done: {success_count} fetched, {skip_count} already have images, {len(papers) - success_count - skip_count} no image found")
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Fetch or refresh paper teaser images.")
+    parser.add_argument(
+        "--retry-fallbacks",
+        action="store_true",
+        default=True,
+        help="Retry generated per-paper teaser.svg fallbacks and replace them with real PNGs when possible (default).",
+    )
+    parser.add_argument(
+        "--no-retry-fallbacks",
+        action="store_false",
+        dest="retry_fallbacks",
+        help="Only fetch missing/placeholder teasers; keep existing teaser.svg fallbacks.",
+    )
+    parser.add_argument("--workers", type=int, default=1, help="Number of parallel teaser fetch workers.")
+    args = parser.parse_args()
+    main(retry_fallbacks=args.retry_fallbacks, workers=args.workers)

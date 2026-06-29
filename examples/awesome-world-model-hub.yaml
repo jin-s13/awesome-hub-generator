@@ -126,6 +126,13 @@ research:
     enabled: false
     endpoint: ""
 
+  # === 上游 awesome 项目 ===
+  upstream_awesome:
+    # 已知高质量 awesome 列表优先使用显式 repo，避免 GitHub Search 匿名限流。
+    repos:
+      - "LMD0311/Awesome-World-Model"
+    auto_discover: false
+
   # === 评分配置 ===
   scoring:
     base_score: 1.5
@@ -140,10 +147,18 @@ research:
   ranking:
     enabled: true
     weights:
-      topical_relevance: 0.40
-      methodology_quality: 0.25
-      reproducibility: 0.25
-      recency: 0.10
+      topical_relevance: 0.25
+      citation_impact: 0.15
+      graph_prestige: 0.15
+      citation_velocity: 0.10
+      methodology_quality: 0.15
+      reproducibility: 0.15
+      recency: 0.05
+    citation_graph:
+      enabled: true
+      fetch_openalex: true
+      timeout: 20
+      workers: 10
 
   # === 深度分析配置 ===
   deep_analysis:

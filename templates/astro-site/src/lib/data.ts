@@ -9,6 +9,14 @@ export type ScoreEvidence = {
   source?: string;
   field?: string;
   detail?: string;
+  span?: {
+    source?: string;
+    field?: string;
+    marker?: string;
+    start?: number;
+    end?: number;
+    text?: string;
+  };
 };
 
 export type ScoreComponent = {
@@ -26,6 +34,12 @@ export type ScoreInfo = {
   components?: Record<string, ScoreComponent>;
   applied_weights?: Record<string, number>;
   ranking_profile?: string;
+  field_roles?: string[];
+  rank_sensitivity?: {
+    stability?: string;
+    rank_range?: number;
+    profiles?: Record<string, { rank?: number; score?: number }>;
+  };
   warnings?: string[];
   keyword_scores?: Record<string, number>;
   author_bonus?: number;
@@ -71,6 +85,7 @@ export type Paper = {
 export type Resource = {
   id: string;
   name: string;
+  name_zh?: string;
   category?: string;
   type?: string;
   resource_type?: string;
@@ -78,10 +93,21 @@ export type Resource = {
   language?: string[];
   kernel?: string[];
   description: string;
+  description_zh?: string;
   tags: string[];
   links: LinkMap;
+  preview?: string;
   sources: SourceRef[];
   notes?: string;
+  notes_zh?: string;
+  related_papers?: RelatedPaperRef[];
+};
+
+export type RelatedPaperRef = {
+  id?: string;
+  title?: string;
+  title_zh?: string;
+  url?: string;
 };
 
 export type SurveyPaperRef = {
@@ -104,6 +130,8 @@ export type SurveyTopic = {
   top_papers: SurveyPaperRef[];
   related_work_outline: string[];
   related_work_outline_zh?: string[];
+  literature_review?: Record<string, unknown>;
+  literature_review_zh?: Record<string, unknown>;
 };
 
 export type SurveyIndex = {
@@ -159,6 +187,10 @@ export function paperTypeFilterValue(paper: Paper): string {
 
 export function getDatasets(): Resource[] {
   return loadYaml<Resource>('data/datasets.yaml').sort((a, b) => (b.year || 0) - (a.year || 0) || a.name.localeCompare(b.name));
+}
+
+export function getDataset(id: string): Resource | undefined {
+  return getDatasets().find((d) => d.id === id);
 }
 
 export function getTools(): Resource[] {

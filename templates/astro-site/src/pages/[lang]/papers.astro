@@ -1,7 +1,7 @@
 ---
 import Base from '../../layouts/Base.astro';
-import PaperCard from '../../components/PaperCard.astro';
 import FilterBar from '../../components/FilterBar.astro';
+import ProgressivePaperGrid from '../../components/ProgressivePaperGrid.astro';
 import { getPapers, paperTypeList, uniq } from '../../lib/data';
 import { useTranslations } from '../../lib/i18n';
 import { type Lang } from '../../lib/lang';
@@ -24,7 +24,5 @@ const years = uniq(papers.map((p) => p.year)).sort((a, b) => b - a);
     <p>{_t('pages.papers.description')}</p>
   </section>
   <FilterBar categories={categories} years={years} lang={lang} />
-  <div class="card-grid papers-grid">
-    {papers.map((paper) => <PaperCard paper={paper} lang={lang} />)}
-  </div>
+  <ProgressivePaperGrid papers={papers} lang={lang} />
 </Base>

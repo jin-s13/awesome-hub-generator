@@ -8,6 +8,9 @@ from scripts.fetch_teasers import (
     _normalize_arxiv_url,
     _fetch_arxiv_html_teaser,
     _is_icon_or_logo,
+    _mark_teaser_fallback_warning,
+    _remove_teaser_fallback_warnings,
+    _should_fetch_teaser_preview,
     download_image,
 )
 
@@ -31,6 +34,33 @@ class TestIsIconOrLogo:
         assert _is_icon_or_logo("icon-arrow.png") is True
     def test_non_icon_keywords(self):
         assert _is_icon_or_logo("figure1.png") is False
+
+
+class TestShouldFetchTeaserPreview:
+    def test_fetches_placeholder(self):
+        assert _should_fetch_teaser_preview("/assets/placeholder.svg") is True
+
+    def test_retries_generated_svg_fallback_by_default(self):
+        assert _should_fetch_teaser_preview("/assets/papers/example/teaser.svg") is True
+
+    def test_can_skip_generated_svg_fallback_when_disabled(self):
+        assert _should_fetch_teaser_preview("/assets/papers/example/teaser.svg", retry_fallbacks=False) is False
+
+    def test_skips_existing_real_teaser(self):
+        assert _should_fetch_teaser_preview("/assets/papers/example/teaser.png") is False
+
+
+class TestTeaserFallbackWarnings:
+    def test_marks_unresolved_svg_fallback(self):
+        paper = {"id": "p1", "preview": "/assets/papers/p1/teaser.svg"}
+        _mark_teaser_fallback_warning(paper, "no real teaser found")
+        assert "generated_fallback_teaser" in paper["generation_notes"]
+        assert "warning_unresolved_teaser_fallback" in paper["generation_notes"]
+
+    def test_removes_fallback_warnings_after_real_teaser(self):
+        paper = {"generation_notes": ["generated_fallback_teaser", "warning_unresolved_teaser_fallback", "other"]}
+        _remove_teaser_fallback_warnings(paper)
+        assert paper["generation_notes"] == ["other"]
 
 
 class TestFetchWithRetry:

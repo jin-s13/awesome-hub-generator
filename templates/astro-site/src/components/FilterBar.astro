@@ -40,16 +40,29 @@ const resultTemplate = _t('filter.resultCount');
   const resetButton = document.getElementById('resetFilters');
   const resultCount = document.getElementById('resultCount');
   const items = Array.from(document.querySelectorAll('.filter-item'));
+  const progressiveGrid = document.querySelector('[data-progressive-grid]');
   const resultTemplate = resultCount?.getAttribute('data-result-template') || '{0} / {1} shown';
 
   function normalize(value) {
     return String(value || '').trim().toLowerCase();
   }
 
+  function updateResultCount(visible, total) {
+    if (resultCount) resultCount.textContent = resultTemplate.replace('{0}', String(visible)).replace('{1}', String(total));
+  }
+
   function applyFilters() {
     const q = normalize(searchInput?.value);
     const category = normalize(categorySelect?.value);
     const year = normalize(yearSelect?.value);
+
+    if (progressiveGrid) {
+      window.dispatchEvent(new CustomEvent('hub-filter-change', {
+        detail: { query: q, category, year },
+      }));
+      return;
+    }
+
     let visible = 0;
 
     for (const item of items) {
@@ -60,12 +73,16 @@ const resultTemplate = _t('filter.resultCount');
       item.toggleAttribute('hidden', !ok);
       if (ok) visible += 1;
     }
-    if (resultCount) resultCount.textContent = resultTemplate.replace('{0}', String(visible)).replace('{1}', String(items.length));
+    updateResultCount(visible, items.length);
   }
 
   searchInput?.addEventListener('input', applyFilters);
   categorySelect?.addEventListener('change', applyFilters);
   yearSelect?.addEventListener('change', applyFilters);
+  window.addEventListener('hub-filter-count', (event) => {
+    const detail = event.detail || {};
+    updateResultCount(detail.visible ?? 0, detail.total ?? items.length);
+  });
   resetButton?.addEventListener('click', () => {
     if (searchInput) searchInput.value = '';
     if (categorySelect) categorySelect.value = '';

@@ -207,6 +207,440 @@ def _jsonish_text(value: Any, *, limit: int = 360) -> str:
     return _truncate(text, limit)
 
 
+LINE_OF_WORK_RULES = [
+    {
+        "line": "State and representation modeling",
+        "line_zh": "表示/状态建模",
+        "terms": [
+            "latent",
+            "representation",
+            "state",
+            "trace",
+            "token",
+            "dynamics",
+            "object",
+            "3d",
+            "geometry",
+            "memory",
+        ],
+        "solves": "turning raw observations into compact predictive states that planning, simulation, or downstream reasoning can consume",
+        "solves_zh": "把原始观测转化为可供规划、仿真或下游推理使用的紧凑预测状态",
+        "misses": "whether the learned state is sufficient for decisions outside the training distribution",
+        "misses_zh": "学习到的状态在训练分布之外是否仍足以支撑决策",
+    },
+    {
+        "line": "Action-conditioned control and planning",
+        "line_zh": "动作条件控制与规划",
+        "terms": [
+            "action",
+            "control",
+            "planner",
+            "planning",
+            "policy",
+            "closed-loop",
+            "closed loop",
+            "robot",
+            "driving",
+            "manipulation",
+            "decision",
+            "controllable",
+        ],
+        "solves": "connecting prediction to interventions, policies, and closed-loop decision quality",
+        "solves_zh": "把预测能力连接到干预、策略和闭环决策质量",
+        "misses": "how much improvement comes from the world model rather than the controller, simulator, or task-specific prior",
+        "misses_zh": "性能提升有多少来自世界模型本身，而不是控制器、仿真器或任务先验",
+    },
+    {
+        "line": "Evaluation and evidence design",
+        "line_zh": "评测与证据设计",
+        "terms": [
+            "benchmark",
+            "baseline",
+            "metric",
+            "evaluation",
+            "evaluate",
+            "dataset",
+            "stress test",
+            "stress",
+            "ablation",
+            "failure",
+            "protocol",
+        ],
+        "solves": "making claims comparable through tasks, baselines, metrics, and failure cases",
+        "solves_zh": "通过任务、基线、指标和失败案例让论文主张具备可比性",
+        "misses": "coverage of diverse tasks and agreement between proxy metrics and real decision utility",
+        "misses_zh": "多样任务覆盖，以及代理指标与真实决策效用之间的一致性",
+    },
+    {
+        "line": "Systems and reproducible infrastructure",
+        "line_zh": "系统与可复现基础设施",
+        "terms": [
+            "system",
+            "framework",
+            "platform",
+            "open-source",
+            "open source",
+            "github",
+            "real-time",
+            "real time",
+            "pipeline",
+            "toolkit",
+            "deployment",
+            "reproducible",
+        ],
+        "solves": "turning isolated model ideas into runnable stacks, artifacts, and repeatable workflows",
+        "solves_zh": "把单点模型想法转化为可运行的系统、工件和可重复流程",
+        "misses": "standardized external validation across hardware, datasets, and user settings",
+        "misses_zh": "跨硬件、数据集和用户设置的标准化外部验证",
+    },
+    {
+        "line": "Conceptual taxonomy and theory",
+        "line_zh": "概念分类与理论",
+        "terms": [
+            "survey",
+            "taxonomy",
+            "theory",
+            "theoretical",
+            "law",
+            "laws",
+            "formal",
+            "guarantee",
+            "foundation",
+            "position",
+            "roadmap",
+        ],
+        "solves": "organizing fragmented claims into task boundaries, assumptions, and evaluation criteria",
+        "solves_zh": "把碎片化主张组织为任务边界、假设和评测标准",
+        "misses": "direct empirical validation that the proposed categories predict model behavior",
+        "misses_zh": "这些分类是否能预测模型行为仍缺少直接实证验证",
+    },
+]
+
+TOPIC_LINE_OF_WORK_RULES = {
+    "method": [
+        {
+            "line": "Method representation and objective design",
+            "line_zh": "方法表示与目标设计",
+            "terms": ["latent", "representation", "state", "trace", "token", "objective", "training", "architecture", "dynamics"],
+            "solves": "turning world-model ideas into concrete representations, losses, architectures, and training recipes",
+            "solves_zh": "把世界模型想法落实为具体表示、损失函数、架构和训练配方",
+            "misses": "which algorithmic choices transfer beyond the reported task family and objective design",
+            "misses_zh": "哪些算法选择能迁移到报告任务族和目标设计之外",
+        },
+        {
+            "line": "Planning and action-interface methods",
+            "line_zh": "规划与动作接口方法",
+            "terms": ["action", "control", "planner", "planning", "policy", "closed-loop", "closed loop", "controllable", "decision"],
+            "solves": "connecting learned dynamics to intervention, planning, and decision-time interfaces",
+            "solves_zh": "把学习到的动力学连接到干预、规划和决策时接口",
+            "misses": "how much of the gain comes from the model versus the planner, controller, or task prior",
+            "misses_zh": "收益有多少来自模型本身，而不是规划器、控制器或任务先验",
+        },
+        {
+            "line": "Method evidence and ablation protocol",
+            "line_zh": "方法证据与消融协议",
+            "terms": ["ablation", "baseline", "metric", "benchmark", "evaluation", "result", "failure", "stress"],
+            "solves": "separating method contribution from dataset, baseline, metric, and implementation effects",
+            "solves_zh": "区分方法贡献与数据集、基线、指标和实现因素",
+            "misses": "whether evidence isolates the proposed method rather than surrounding system choices",
+            "misses_zh": "证据是否真正隔离了方法贡献，而不是周边系统选择",
+        },
+    ],
+    "benchmark": [
+        {
+            "line": "Benchmark task and dataset design",
+            "line_zh": "基准任务与数据集设计",
+            "terms": ["dataset", "benchmark", "task", "suite", "leaderboard", "scenario", "protocol"],
+            "solves": "creating shared tasks and datasets that make world-model claims comparable",
+            "solves_zh": "构建共享任务和数据集，让世界模型主张具备可比性",
+            "misses": "whether the task distribution covers the settings where world models are expected to help",
+            "misses_zh": "任务分布是否覆盖世界模型预期发挥作用的真实设置",
+        },
+        {
+            "line": "Metric and stress-test design",
+            "line_zh": "指标与压力测试设计",
+            "terms": ["metric", "evaluation", "stress", "failure", "robust", "ood", "generalization"],
+            "solves": "probing prediction, controllability, robustness, and decision utility beyond aggregate scores",
+            "solves_zh": "在总分之外检验预测、可控性、鲁棒性和决策效用",
+            "misses": "alignment between proxy metrics and the downstream decisions users actually care about",
+            "misses_zh": "代理指标与用户真正关心的下游决策之间是否一致",
+        },
+        {
+            "line": "Comparable baselines and reporting",
+            "line_zh": "可比基线与报告规范",
+            "terms": ["baseline", "reproducible", "code", "protocol", "report", "artifact", "evaluation"],
+            "solves": "making results auditable through common baselines, artifacts, and reporting conventions",
+            "solves_zh": "通过统一基线、工件和报告规范让结果可审计",
+            "misses": "whether benchmark conclusions remain stable across implementations and compute budgets",
+            "misses_zh": "基准结论在不同实现和算力预算下是否稳定",
+        },
+    ],
+    "system": [
+        {
+            "line": "Runnable pipelines and deployment stacks",
+            "line_zh": "可运行流水线与部署栈",
+            "terms": ["system", "framework", "platform", "pipeline", "deployment", "stack", "inference", "training", "runtime"],
+            "solves": "turning model ideas into end-to-end workflows for data, training, inference, and evaluation",
+            "solves_zh": "把模型想法转化为覆盖数据、训练、推理和评测的端到端工作流",
+            "misses": "how well the stack survives external deployment, hardware changes, and user-specific settings",
+            "misses_zh": "系统栈在外部部署、硬件变化和用户特定设置下是否仍然可靠",
+        },
+        {
+            "line": "Real-time and interactive serving",
+            "line_zh": "实时与交互式服务",
+            "terms": ["real-time", "real time", "interactive", "latency", "throughput", "serving", "closed-loop", "online"],
+            "solves": "meeting latency and interactivity requirements for closed-loop use",
+            "solves_zh": "满足闭环使用中的延迟和交互需求",
+            "misses": "trade-offs between speed, fidelity, controllability, and system complexity",
+            "misses_zh": "速度、保真度、可控性和系统复杂度之间的权衡",
+        },
+        {
+            "line": "Artifacts and reproducible engineering",
+            "line_zh": "工件与可复现工程",
+            "terms": ["open-source", "open source", "github", "toolkit", "artifact", "reproducible", "code", "framework"],
+            "solves": "making systems inspectable and reusable through code, tools, and experiment artifacts",
+            "solves_zh": "通过代码、工具和实验工件让系统可检查、可复用",
+            "misses": "independent reproduction across teams, datasets, and infrastructure environments",
+            "misses_zh": "跨团队、数据集和基础设施环境的独立复现",
+        },
+    ],
+    "theory": [
+        {
+            "line": "Formal definitions and assumptions",
+            "line_zh": "形式化定义与假设",
+            "terms": ["formal", "definition", "assumption", "sufficiency", "state", "latent", "foundation"],
+            "solves": "clarifying what a world model must represent and under which assumptions claims hold",
+            "solves_zh": "澄清世界模型必须表示什么，以及相关主张在哪些假设下成立",
+            "misses": "whether the formal conditions match empirical model behavior in realistic settings",
+            "misses_zh": "形式条件是否符合真实场景中的经验模型行为",
+        },
+        {
+            "line": "Scaling laws and guarantees",
+            "line_zh": "缩放规律与保证",
+            "terms": ["law", "laws", "scaling", "guarantee", "bound", "theoretical", "proof"],
+            "solves": "connecting model size, data, objectives, or assumptions to expected behavior",
+            "solves_zh": "把模型规模、数据、目标或假设与预期行为联系起来",
+            "misses": "direct validation that the claimed laws predict failures and transfers",
+            "misses_zh": "这些规律是否能预测失败和迁移仍缺少直接验证",
+        },
+        {
+            "line": "Conceptual taxonomy and boundaries",
+            "line_zh": "概念分类与边界",
+            "terms": ["taxonomy", "concept", "foundation", "position", "roadmap", "survey", "boundary"],
+            "solves": "organizing fragmented world-model claims into categories and problem boundaries",
+            "solves_zh": "把碎片化的世界模型主张组织为类别和问题边界",
+            "misses": "whether the taxonomy changes how researchers evaluate or design models",
+            "misses_zh": "这些分类是否真正改变研究者的评测和模型设计方式",
+        },
+    ],
+    "survey": [
+        {
+            "line": "Taxonomy and roadmap synthesis",
+            "line_zh": "分类体系与路线图综合",
+            "terms": ["survey", "taxonomy", "roadmap", "frontier", "trend", "challenge"],
+            "solves": "mapping a fragmented field into directions, milestones, and research gaps",
+            "solves_zh": "把碎片化领域整理为方向、里程碑和研究缺口",
+            "misses": "whether the synthesis is backed by systematic evidence rather than selective examples",
+            "misses_zh": "综合是否由系统证据支撑，而不是选择性举例",
+        },
+        {
+            "line": "Comparative evaluation synthesis",
+            "line_zh": "对比评测综合",
+            "terms": ["benchmark", "evaluation", "compare", "metric", "baseline", "dataset"],
+            "solves": "summarizing how different evaluation choices shape conclusions across papers",
+            "solves_zh": "总结不同评测选择如何影响跨论文结论",
+            "misses": "whether the compared results are actually compatible across settings",
+            "misses_zh": "被比较的结果在不同设置下是否真正兼容",
+        },
+        {
+            "line": "Open problem and gap mapping",
+            "line_zh": "开放问题与缺口映射",
+            "terms": ["open", "gap", "limitation", "challenge", "future", "trend"],
+            "solves": "turning broad literature coverage into concrete next research questions",
+            "solves_zh": "把广泛文献覆盖转化为具体下一步研究问题",
+            "misses": "prioritization of which gaps matter most for progress",
+            "misses_zh": "哪些缺口最值得优先解决仍需要排序",
+        },
+    ],
+    "application": [
+        {
+            "line": "Embodied and domain task transfer",
+            "line_zh": "具身与领域任务迁移",
+            "terms": ["robot", "robotics", "manipulation", "embodied", "domain", "task", "transfer", "healthcare", "science"],
+            "solves": "adapting world models to concrete task domains with domain-specific states, actions, and constraints",
+            "solves_zh": "把世界模型适配到具有领域状态、动作和约束的具体任务",
+            "misses": "whether improvements transfer across embodiments, datasets, institutions, or physical environments",
+            "misses_zh": "改进能否跨本体、数据集、机构或物理环境迁移",
+        },
+        {
+            "line": "Autonomous driving and simulation use cases",
+            "line_zh": "自动驾驶与仿真应用",
+            "terms": ["driving", "autonomous", "vehicle", "scene", "simulation", "simulator", "traffic"],
+            "solves": "using world models for scene prediction, closed-loop simulation, and policy evaluation in driving",
+            "solves_zh": "将世界模型用于驾驶中的场景预测、闭环仿真和策略评测",
+            "misses": "alignment between simulator gains and real-world safety or operational outcomes",
+            "misses_zh": "仿真收益与真实安全或运营结果之间是否一致",
+        },
+        {
+            "line": "Interactive agents and games",
+            "line_zh": "交互式智能体与游戏",
+            "terms": ["game", "agent", "interactive", "environment", "navigation", "planning", "policy"],
+            "solves": "grounding world models in interactive environments where agents must act over time",
+            "solves_zh": "把世界模型落到智能体需要持续行动的交互环境中",
+            "misses": "generalization when environment rules, goals, or user interactions change",
+            "misses_zh": "环境规则、目标或用户交互变化时的泛化能力",
+        },
+    ],
+}
+
+TOPIC_SYNTHESIS_FRAMES = {
+    "method": {
+        "goal": "turn world-model ideas into concrete architectures, objectives, planners, and training recipes",
+        "goal_zh": "把世界模型想法落实为架构、目标函数、规划接口和训练配方",
+        "pattern": "propose a modeling choice, isolate it with ablations or baselines, and test whether it changes downstream behavior",
+        "pattern_zh": "提出一个建模选择，再用消融或基线隔离其贡献，并验证它是否改变下游行为",
+        "split": "representation/objective choices, planning interfaces, and evidence protocols",
+        "split_zh": "表示/目标设计、规划接口和证据协议",
+    },
+    "benchmark": {
+        "goal": "make world-model claims comparable through shared tasks, metrics, baselines, and reporting rules",
+        "goal_zh": "通过共享任务、指标、基线和报告规范让世界模型主张具备可比性",
+        "pattern": "define a task distribution, choose measurable failure modes, and expose where proxy scores diverge from useful behavior",
+        "pattern_zh": "定义任务分布，选择可测失败模式，并暴露代理分数与有用行为的偏差",
+        "split": "dataset coverage, metric design, stress tests, and baseline comparability",
+        "split_zh": "数据覆盖、指标设计、压力测试和基线可比性",
+    },
+    "system": {
+        "goal": "turn model research into runnable stacks that connect data, training, inference, evaluation, and deployment",
+        "goal_zh": "把模型研究转化为连接数据、训练、推理、评测和部署的可运行系统栈",
+        "pattern": "package multiple engineering stages into a usable workflow and then report latency, reproducibility, or integration evidence",
+        "pattern_zh": "把多个工程阶段封装成可用工作流，再报告延迟、可复现性或集成证据",
+        "split": "runtime performance, reproducible artifacts, and integration with external simulators or applications",
+        "split_zh": "运行时性能、可复现工件，以及与外部仿真器或应用的集成",
+    },
+    "theory": {
+        "goal": "clarify definitions, assumptions, laws, and boundaries behind world-model claims",
+        "goal_zh": "澄清世界模型主张背后的定义、假设、规律和边界",
+        "pattern": "state a formal or conceptual claim, identify the conditions under which it holds, and connect it to evaluation criteria",
+        "pattern_zh": "提出形式化或概念性主张，说明其成立条件，并连接到评测标准",
+        "split": "formal guarantees, conceptual taxonomies, and empirical validity of assumptions",
+        "split_zh": "形式保证、概念分类和假设的经验有效性",
+    },
+    "survey": {
+        "goal": "organize a fragmented literature into directions, comparisons, gaps, and roadmaps",
+        "goal_zh": "把碎片化文献组织为方向、对比、缺口和路线图",
+        "pattern": "cluster prior work by problem, compare evidence standards, and surface unresolved tensions",
+        "pattern_zh": "按问题聚类既有工作，对比证据标准，并指出未解决张力",
+        "split": "taxonomy scope, evaluation comparability, and prioritization of open problems",
+        "split_zh": "分类范围、评测可比性和开放问题优先级",
+    },
+    "application": {
+        "goal": "adapt world models to domain tasks where success depends on task constraints, embodiment, and operating context",
+        "goal_zh": "把世界模型适配到受任务约束、本体和运行环境影响的领域任务",
+        "pattern": "bind prediction to domain-specific state/action spaces and evaluate task success under realistic shifts",
+        "pattern_zh": "把预测绑定到领域特定的状态/动作空间，并在真实变化下评测任务成功",
+        "split": "robotics, driving, interactive agents, and other domains with different action spaces and evidence standards",
+        "split_zh": "机器人、驾驶、交互式智能体等具有不同动作空间和证据标准的领域",
+    },
+}
+
+
+def _paper_evidence_text(paper: Dict[str, Any], *, zh: bool = False) -> str:
+    analysis = _analysis_for(paper, zh=zh)
+    parts = [
+        paper.get("title", ""),
+        paper.get("tldr_cn" if zh else "tldr", ""),
+        " ".join(str(tag) for tag in paper.get("tags", [])[:8]),
+        analysis.get("innovations", ""),
+        analysis.get("methodology", ""),
+        analysis.get("key_results", ""),
+        analysis.get("limitations", ""),
+    ]
+    return _jsonish_text(parts, limit=1600)
+
+
+def _topic_id(topic: Dict[str, str]) -> str:
+    return _slug(str(topic.get("id") or topic.get("label") or "topic"))
+
+
+def _candidate_line_rules(topic: Dict[str, str]) -> List[Dict[str, Any]]:
+    return TOPIC_LINE_OF_WORK_RULES.get(_topic_id(topic), LINE_OF_WORK_RULES)
+
+
+def _matched_lines_for_paper(topic: Dict[str, str], paper: Dict[str, Any]) -> List[Dict[str, Any]]:
+    text = _paper_evidence_text(paper).lower()
+    candidates = _candidate_line_rules(topic)
+    matches = []
+    for rule in candidates:
+        count = sum(1 for term in rule["terms"] if term in text)
+        if count:
+            matches.append({**rule, "match_count": count})
+    if matches:
+        return sorted(matches, key=lambda item: (-int(item["match_count"]), item["line"]))[:2]
+    return [candidates[0]]
+
+
+def _representative_paper_ref(paper: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": paper.get("id", ""),
+        "title": paper.get("title", ""),
+        "year": paper.get("year"),
+        "score": _score(paper),
+    }
+
+
+def _line_of_work_matrix(topic: Dict[str, str], papers: List[Dict[str, Any]], *, zh: bool = False) -> List[Dict[str, Any]]:
+    buckets: Dict[str, Dict[str, Any]] = {}
+    rule_order = {rule["line"]: index for index, rule in enumerate(_candidate_line_rules(topic))}
+    for paper in sorted(papers, key=lambda item: (-_score(item), -(item.get("year") or 0), item.get("title") or "")):
+        for rule in _matched_lines_for_paper(topic, paper):
+            key = rule["line"]
+            bucket = buckets.setdefault(
+                key,
+                {
+                    "line": rule["line"],
+                    "line_zh": rule["line_zh"],
+                    "paper_count": 0,
+                    "what_it_solves": rule["solves"],
+                    "what_it_solves_zh": rule["solves_zh"],
+                    "what_remains_open": rule["misses"],
+                    "what_remains_open_zh": rule["misses_zh"],
+                    "representative_papers": [],
+                    "order": rule_order.get(rule["line"], 999),
+                },
+            )
+            bucket["paper_count"] += 1
+            if len(bucket["representative_papers"]) < 3:
+                bucket["representative_papers"].append(_representative_paper_ref(paper))
+    ordered = sorted(buckets.values(), key=lambda item: (-int(item["paper_count"]), int(item.get("order", 999)), item["line"]))
+    if zh:
+        return [
+            {
+                "路线": item["line_zh"],
+                "论文数": item["paper_count"],
+                "解决的问题": item["what_it_solves_zh"],
+                "尚未覆盖": item["what_remains_open_zh"],
+                "代表论文": item["representative_papers"],
+            }
+            for item in ordered
+        ]
+    return [
+        {
+            "line": item["line"],
+            "paper_count": item["paper_count"],
+            "what_it_solves": item["what_it_solves"],
+            "what_remains_open": item["what_remains_open"],
+            "representative_papers": item["representative_papers"],
+        }
+        for item in ordered
+    ]
+
+
+def _line_names(matrix: List[Dict[str, Any]], *, zh: bool = False, limit: int = 3) -> List[str]:
+    key = "路线" if zh else "line"
+    return [str(item.get(key, "")) for item in matrix[:limit] if item.get(key)]
+
+
 def _score_components_for_packet(paper: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     score = paper.get("score") if isinstance(paper.get("score"), dict) else {}
     components = score.get("components") if isinstance(score.get("components"), dict) else {}
@@ -266,6 +700,17 @@ def _topic_synthesis_packet(topic: Dict[str, str], papers: List[Dict[str, Any]],
         },
         "paper_count": len(papers),
         "top_tags": tags[:10],
+        "research_line_candidates": [
+            {
+                "line": rule["line"],
+                "line_zh": rule["line_zh"],
+                "what_it_solves": rule["solves"],
+                "what_it_solves_zh": rule["solves_zh"],
+                "what_remains_open": rule["misses"],
+                "what_remains_open_zh": rule["misses_zh"],
+            }
+            for rule in _candidate_line_rules(topic)
+        ],
         "year_span": _year_span(papers),
         "top_papers": packet_papers,
         "instructions": [
@@ -297,11 +742,39 @@ Return ONLY valid JSON:
     "关键差异：...",
     "趋势演进：...",
     "开放问题：..."
-  ]
+  ],
+  "literature_review": {{
+    "line_of_work_matrix": [
+      {{
+        "line": "line of work, not a tag",
+        "what_it_solves": "abstract capability or research problem",
+        "what_remains_open": "assumption, missing evidence, or unresolved boundary"
+      }}
+    ],
+    "consensus": ["cross-paper synthesis without paper titles"],
+    "disagreements": ["content-level difference such as representation, supervision, evaluation target, interaction mode, or deployment setting"],
+    "open_questions": ["evidence-grounded question"]
+  }},
+  "literature_review_zh": {{
+    "研究路线矩阵": [
+      {{
+        "路线": "研究路线，不是标签",
+        "解决的问题": "抽象能力或研究问题",
+        "尚未覆盖": "假设、证据缺口或未解决边界"
+      }}
+    ],
+    "共识": ["不要堆论文名的跨论文归纳"],
+    "分歧": ["表示方式、监督信号、评测目标、交互模式或部署场景等内容层面的差异"],
+    "开放问题": ["基于证据缺口的问题"]
+  }}
 }}
 
 Synthesis rules:
 - Do not write a paper-by-paper list. Use representative paper titles only as short examples when they clarify a pattern.
+- The literature_review consensus/disagreements fields must not list paper titles. Keep titles inside representative_papers or short examples only.
+- Never explain differences by tag names such as CV, AI, RO, world model, or benchmark. Tags are retrieval hints, not content-level differences.
+- Build a topic-specific related-work matrix first: line of work -> what it solves -> what remains open. Then write consensus and disagreements from that matrix.
+- Use the topic label, topic description, and research_line_candidates to choose lines that fit this topic. Do not reuse a generic world-model route across unrelated topics unless the papers in this topic justify it.
 - Map what papers agree on, where they differ, and which assumptions or evaluation settings explain the differences.
 - Identify the dominant research direction and the main sub-directions inside the topic.
 - Explain how the topic appears to be evolving over time from the available years and evidence. If the years are too narrow, say the trend is within the current frontier.
@@ -342,7 +815,7 @@ def _normalize_outline_items(items: Any, prefixes: List[str], *, limit: int = 5)
     return selected
 
 
-def _llm_topic_synthesis(topic: Dict[str, str], papers: List[Dict[str, Any]], tags: List[str]) -> Optional[Dict[str, List[str]]]:
+def _llm_topic_synthesis(topic: Dict[str, str], papers: List[Dict[str, Any]], tags: List[str]) -> Optional[Dict[str, Any]]:
     try:
         from scripts.generate_interpretations import SMART_MODEL, _llm_chat
     except ImportError:
@@ -380,7 +853,141 @@ def _llm_topic_synthesis(topic: Dict[str, str], papers: List[Dict[str, Any]], ta
     )
     if not outline or not outline_zh:
         return None
-    return {"outline": outline, "outline_zh": outline_zh}
+    synthesis: Dict[str, Any] = {"outline": outline, "outline_zh": outline_zh}
+    literature_review = result.get("literature_review")
+    if isinstance(literature_review, dict) and isinstance(literature_review.get("line_of_work_matrix"), list):
+        synthesis["literature_review"] = literature_review
+    literature_review_zh = result.get("literature_review_zh")
+    if isinstance(literature_review_zh, dict) and isinstance(literature_review_zh.get("研究路线矩阵"), list):
+        synthesis["literature_review_zh"] = literature_review_zh
+    return synthesis
+
+
+def _literature_references(papers: List[Dict[str, Any]], limit: int = 8) -> List[Dict[str, Any]]:
+    return [
+        {
+            "id": paper.get("id", ""),
+            "title": paper.get("title", ""),
+            "year": paper.get("year"),
+            "score": _score(paper),
+            "role": ", ".join(_paper_types(paper)),
+        }
+        for paper in sorted(papers, key=lambda item: (-_score(item), -(item.get("year") or 0), item.get("title") or ""))[:limit]
+    ]
+
+
+def _timeline(papers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    buckets: Dict[int, List[Dict[str, Any]]] = defaultdict(list)
+    for paper in papers:
+        if isinstance(paper.get("year"), int):
+            buckets[int(paper["year"])].append(paper)
+    return [
+        {
+            "year": year,
+            "paper_count": len(items),
+            "representative_papers": [paper.get("title", "") for paper in sorted(items, key=lambda item: -_score(item))[:3]],
+        }
+        for year, items in sorted(buckets.items())
+    ]
+
+
+def _literature_review(topic: Dict[str, str], papers: List[Dict[str, Any]], tags: List[str]) -> Dict[str, Any]:
+    matrix = _line_of_work_matrix(topic, papers)
+    line_names = _line_names(matrix)
+    dominant = matrix[0] if matrix else {}
+    secondary = matrix[1] if len(matrix) > 1 else {}
+    evidence_line = next(
+        (
+            item
+            for item in matrix
+            if any(token in str(item.get("line", "")).lower() for token in ["evaluation", "evidence", "metric", "benchmark"])
+        ),
+        None,
+    )
+    frame = TOPIC_SYNTHESIS_FRAMES.get(_topic_id(topic), TOPIC_SYNTHESIS_FRAMES["method"])
+    years = _year_span(papers)
+    if len(years) > 1:
+        trend = (
+            f"Across {years[0]}-{years[-1]}, the topic moves from isolated modeling claims toward "
+            f"work that ties {frame['goal']} to stronger evidence and clearer boundaries."
+        )
+    else:
+        trend = (
+            f"Within the current frontier, the field is shifting from isolated demonstrations toward evidence about when {frame['goal']}."
+        )
+    return {
+        "scope_methodology": (
+            f"Grouped {len(papers)} papers under {topic.get('label') or topic.get('id')} by research line, "
+            "using each paper's problem setting, modeling target, evidence type, and reported limitations to identify cross-paper patterns."
+        ),
+        "line_of_work_matrix": matrix,
+        "consensus": [
+            (
+                f"The main body of work is organized around {', '.join(line_names) if line_names else 'representation, action, and evaluation questions'}, "
+                f"with a shared goal to {frame['goal']}."
+            ),
+            (
+                f"A common pattern is to {frame['pattern']}, rather than treating paper titles or tags as the unit of comparison."
+            ),
+        ],
+        "disagreements": [
+            (
+                f"The substantive split is between {frame['split']}; those choices change the input-output contract, evidence standard, and failure modes."
+            ),
+            (
+                f"The unresolved boundary is {dominant.get('what_remains_open') or 'whether improvements transfer beyond the reported setup'}; "
+                f"{'another recurring gap is ' + secondary.get('what_remains_open') if secondary else 'evidence coverage remains uneven across tasks'}."
+            ),
+        ],
+        "open_questions": [
+            "Which representation choices remain useful when the downstream task, controller, or data distribution changes?",
+            (
+                f"Do current evaluation protocols measure decision utility directly, or mostly proxy quality signals?"
+                if evidence_line
+                else "What shared benchmarks would let the field compare prediction quality, controllability, and decision utility together?"
+            ),
+        ],
+        "trend_evolution": trend,
+        "timeline": _timeline(papers),
+        "references": _literature_references(papers),
+    }
+
+
+def _literature_review_zh(topic: Dict[str, str], papers: List[Dict[str, Any]], tags: List[str]) -> Dict[str, Any]:
+    matrix = _line_of_work_matrix(topic, papers, zh=True)
+    line_names = _line_names(matrix, zh=True)
+    dominant = matrix[0] if matrix else {}
+    secondary = matrix[1] if len(matrix) > 1 else {}
+    evidence_line = next(
+        (item for item in matrix if any(token in str(item.get("路线", "")) for token in ["评测", "证据", "指标", "基准"])),
+        None,
+    )
+    frame = TOPIC_SYNTHESIS_FRAMES.get(_topic_id(topic), TOPIC_SYNTHESIS_FRAMES["method"])
+    label = topic.get("label_zh") or topic.get("label") or topic.get("id")
+    years = _year_span(papers)
+    if len(years) > 1:
+        trend = f"从 {years[0]} 到 {years[-1]}，研究重心正在从单点主张转向把{frame['goal_zh']}与更强证据和更清晰边界连接起来。"
+    else:
+        trend = f"当前前沿正在从单篇演示转向回答{frame['goal_zh']}在什么条件下真正成立。"
+    return {
+        "范围与方法": f"按研究路线归纳 {len(papers)} 篇{label}相关论文，依据问题设定、建模对象、证据类型和已报告局限识别跨论文模式。",
+        "研究路线矩阵": matrix,
+        "共识": [
+            f"这个主题的主体由{_join_zh(line_names) if line_names else '若干内容路线'}构成，共同目标是{frame['goal_zh']}。",
+            f"常见范式是{frame['pattern_zh']}，而不是把论文标题或标签当作比较单位。",
+        ],
+        "分歧": [
+            f"论文之间的实质分歧集中在{frame['split_zh']}；这些选择决定输入输出约定、证据标准和失败模式。",
+            f"尚未解决的边界包括{dominant.get('尚未覆盖') or '改进能否迁移到报告设置之外'}；{('另一个反复出现的问题是' + str(secondary.get('尚未覆盖'))) if secondary else '不同任务上的证据覆盖仍不均衡'}。",
+        ],
+        "开放问题": [
+            "当下游任务、控制器或数据分布变化时，哪些表示选择仍然有效？",
+            "现有评测是在直接度量决策效用，还是主要度量视觉质量、预测误差等代理信号？" if evidence_line else "什么样的共享基准能同时比较预测质量、可控性和决策效用？",
+        ],
+        "趋势演进": trend,
+        "时间线": _timeline(papers),
+        "参考论文": _literature_references(papers),
+    }
 
 
 def _join_evidence(parts: List[str], *, empty: str) -> str:
@@ -545,6 +1152,16 @@ def build_literature_surveys(
             continue
         tags = _top_tags(matching)
         llm_synthesis = _llm_topic_synthesis(topic, matching, tags) if use_llm else None
+        literature_review = (
+            llm_synthesis.get("literature_review")
+            if llm_synthesis and isinstance(llm_synthesis.get("literature_review"), dict)
+            else _literature_review(topic, matching, tags)
+        )
+        literature_review_zh = (
+            llm_synthesis.get("literature_review_zh")
+            if llm_synthesis and isinstance(llm_synthesis.get("literature_review_zh"), dict)
+            else _literature_review_zh(topic, matching, tags)
+        )
         survey_topics.append(
             {
                 "id": topic_id,
@@ -558,6 +1175,8 @@ def build_literature_surveys(
                 "top_papers": _top_paper_summary(matching),
                 "related_work_outline": llm_synthesis["outline"] if llm_synthesis else _outline(topic, matching, tags),
                 "related_work_outline_zh": llm_synthesis["outline_zh"] if llm_synthesis else _outline_zh(topic, matching, tags),
+                "literature_review": literature_review,
+                "literature_review_zh": literature_review_zh,
             }
         )
 

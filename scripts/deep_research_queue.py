@@ -52,6 +52,74 @@ def _component_summary(paper: Dict[str, Any]) -> List[str]:
     return lines
 
 
+def _component_value(paper: Dict[str, Any], key: str) -> float:
+    score = paper.get("score") if isinstance(paper.get("score"), dict) else {}
+    components = score.get("components") if isinstance(score.get("components"), dict) else {}
+    component = components.get(key) if isinstance(components.get(key), dict) else {}
+    try:
+        return float(component.get("value") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _critique_for_paper(paper: Dict[str, Any]) -> Dict[str, Any]:
+    links = paper.get("links") if isinstance(paper.get("links"), dict) else {}
+    strengths: List[str] = []
+    concerns: List[str] = []
+    follow_up: List[str] = []
+    if _component_value(paper, "topical_relevance") >= 75:
+        strengths.append("Strong topical fit for the hub's research scope.")
+    if _component_value(paper, "methodology_quality") >= 70:
+        strengths.append("Visible methodology or evaluation signals make it worth reading early.")
+    if _component_value(paper, "reproducibility") >= 70:
+        strengths.append("Reproducibility signals suggest useful code, data, paper, or artifact paths.")
+    if not any(str(value).strip() for key, value in links.items() if key in {"code", "github", "repo", "dataset", "data"}):
+        concerns.append("Code or dataset availability still needs direct verification.")
+    if _component_value(paper, "methodology_quality") < 70:
+        concerns.append("Methodology details may be incomplete in the current metadata.")
+    concerns.append("Ranking evidence is triage only; full text, metrics, baselines, and limitations still need inspection.")
+    follow_up.extend(
+        [
+            "Read the full paper and extract central claims with source locations.",
+            "Verify code, dataset, benchmark, metric, checkpoint, and artifact links before describing them as available.",
+            "Compare reported claims against baselines and limitations before using this paper in a literature review.",
+        ]
+    )
+    verdict = "read_first" if strengths else "verify_before_prioritizing"
+    return {
+        "verdict": verdict,
+        "strengths": strengths or ["Selected by read-first score and local metadata."],
+        "concerns": concerns,
+        "follow_up_questions": follow_up,
+    }
+
+
+def _next_actions_for_paper(paper: Dict[str, Any]) -> List[Dict[str, Any]]:
+    paper_id = str(paper.get("id") or paper.get("title") or "paper")
+    return [
+        {
+            "id": f"{paper_id}:verify-source-spans",
+            "type": "read",
+            "priority": "high",
+            "title": "Extract claim-level source spans from the paper.",
+            "acceptance_criteria": [
+                "Each central claim has a section, figure, table, or paragraph pointer.",
+                "Method, dataset, baseline, metric, and limitation claims are separated.",
+            ],
+        },
+        {
+            "id": f"{paper_id}:check-artifacts",
+            "type": "verify",
+            "priority": "medium",
+            "title": "Verify linked code, datasets, checkpoints, and benchmark artifacts.",
+            "acceptance_criteria": [
+                "Artifact URLs resolve and match the paper.",
+                "Missing artifacts are recorded as verification gaps, not negative evidence.",
+            ],
+        },
+    ]
+
+
 def _run_id(workflow: str, generated_at: str, paper_ids: List[str]) -> str:
     digest = hashlib.sha256(f"{workflow}\0{generated_at}\0{','.join(paper_ids)}".encode()).hexdigest()[:16]
     return f"{workflow}:{digest}"
@@ -76,6 +144,15 @@ def _write_report(path: Path, paper: Dict[str, Any], generated_at: str) -> None:
         "## Score Signals",
         "",
         *(_component_summary(paper) or ["- No score components recorded yet."]),
+        "",
+        "## Critique",
+        "",
+        *[f"- Strength: {item}" for item in _critique_for_paper(paper)["strengths"]],
+        *[f"- Concern: {item}" for item in _critique_for_paper(paper)["concerns"]],
+        "",
+        "## Next Research Actions",
+        "",
+        *[f"- {action['title']}" for action in _next_actions_for_paper(paper)],
         "",
         "## Research Questions",
         "",
@@ -159,6 +236,8 @@ def build_deep_research_queue(
             "report": rel_path,
             "queued_at": generated_at,
         }
+        critique = _critique_for_paper(paper)
+        next_actions = _next_actions_for_paper(paper)
         run_papers.append(
             {
                 "id": paper_id,
@@ -171,6 +250,8 @@ def build_deep_research_queue(
                     "state": "not_checked",
                     "summary": "Queued from local metadata; full text and code have not been verified.",
                 },
+                "critique": critique,
+                "next_actions": next_actions,
             }
         )
         artifacts.append(

@@ -3,10 +3,21 @@
 # 使用前需要配置以下 GitHub Secrets:
 #   - ARK_API_KEY: LLM API key (用于论文评分和分析)
 #   - MINERU_API_KEY: MinerU API key (可选，用于 PDF 图表提取)
+#   - OPENALEX_API_KEY: OpenAlex API key (可选，用于引用数据)
+#   - OPENALEX_MAILTO: OpenAlex polite pool email (可选)
 
 name: Daily Update
 
 on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '.local/data/**'
+      - '.local/assets/**'
+      - '.local/resource/**'
+      - '.local/backups/**'
+      - '.local/website/**'
   schedule:
     # 每天北京时间 8:00 (UTC 0:00)
     - cron: '0 0 * * *'
@@ -19,6 +30,11 @@ on:
         type: string
       skip_build:
         description: '跳过网站构建'
+        required: false
+        default: false
+        type: boolean
+      skip_update:
+        description: '跳过数据更新，仅用现有 data 构建网站'
         required: false
         default: false
         type: boolean
@@ -35,6 +51,9 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout site repo
         uses: actions/checkout@v4
@@ -44,7 +63,7 @@ jobs:
       - name: Checkout generator (as submodule or sibling)
         uses: actions/checkout@v4
         with:
-          repository: ${{ vars.GENERATOR_REPO || 'your-org/awesome-hub-generator' }}
+          repository: ${{ vars.GENERATOR_REPO || 'jin-s13/awesome-hub-generator' }}
           ref: main
           path: awesome-hub-generator
 
@@ -71,6 +90,7 @@ jobs:
           sudo apt-get update && sudo apt-get install -y poppler-utils
 
       - name: Restore data cache
+        if: github.event_name != 'push'
         uses: actions/cache@v4
         with:
           path: |
@@ -82,12 +102,15 @@ jobs:
             site-data-
 
       - name: Run daily update
+        if: github.event_name != 'push' && github.event.inputs.skip_update != 'true'
         env:
           ARK_API_KEY: ${{ secrets.ARK_API_KEY }}
           ARK_API_BASE_URL: ${{ secrets.ARK_API_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3' }}
           ARK_MODEL_NAME: ${{ secrets.ARK_MODEL_NAME || 'deepseek-v4-flash-260425' }}
           SMART_MODEL_NAME: ${{ secrets.SMART_MODEL_NAME || secrets.ARK_MODEL_NAME || 'deepseek-v4-flash-260425' }}
           MINERU_API_KEY: ${{ secrets.MINERU_API_KEY }}
+          OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
+          OPENALEX_MAILTO: ${{ secrets.OPENALEX_MAILTO }}
         run: |
           cd ${{ github.workspace }}
           SEARCH_DAYS_ARGS=""
@@ -105,14 +128,23 @@ jobs:
           npm install
           npm run build
 
+      - name: Configure GitHub Pages
+        if: github.event.inputs.skip_build != 'true'
+        uses: actions/configure-pages@v5
+
+      - name: Upload GitHub Pages artifact
+        if: github.event.inputs.skip_build != 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./.local/website/dist
+
       - name: Deploy to GitHub Pages
         if: github.event.inputs.skip_build != 'true'
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./.local/website/dist
+        id: deployment
+        uses: actions/deploy-pages@v4
 
       - name: Commit data changes
+        if: github.event_name != 'push' && github.event.inputs.skip_update != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

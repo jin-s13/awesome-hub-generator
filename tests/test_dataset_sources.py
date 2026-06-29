@@ -69,12 +69,15 @@ def test_sync_datasets_derives_benchmark_and_dataset_mention_papers(tmp_path):
         """
 - id: bench-1
   title: "WorldBench: A Benchmark for World Models"
+  title_cn: "WorldBench：世界模型评测基准"
   abstract: "We introduce a benchmark for world model evaluation."
+  tldr_cn: "WorldBench 提供用于评测世界模型的数据集与基准任务。"
   year: 2026
   paper_type: [benchmark]
   tags: [benchmark, world model]
   links:
     paper: https://arxiv.org/abs/2601.00001
+  preview: /assets/papers/bench-1/teaser.png
 - id: dataset-1
   title: "A Large Dataset for Interactive World Models"
   abstract: "This dataset contains video action trajectories."
@@ -113,6 +116,11 @@ def test_sync_datasets_derives_benchmark_and_dataset_mention_papers(tmp_path):
     assert "category" not in datasets[0]
     assert "type" not in datasets[0]
     assert datasets[0]["links"]["paper"] == "https://arxiv.org/abs/2601.00001"
+    assert datasets[0]["preview"] == "/assets/papers/bench-1/teaser.png"
+    assert datasets[0]["name_zh"] == "WorldBench"
+    assert datasets[0]["description_zh"] == "WorldBench 提供用于评测世界模型的数据集与基准任务。"
+    assert datasets[0]["notes_zh"] == "派生自论文：WorldBench：世界模型评测基准"
+    assert datasets[0]["related_papers"][0]["title_zh"] == "WorldBench：世界模型评测基准"
 
 
 def test_associate_datasets_with_papers_adds_related_papers():
@@ -127,21 +135,27 @@ def test_associate_datasets_with_papers_adds_related_papers():
         {
             "id": "paper-1",
             "title": "WorldBench: A Benchmark for World Models",
+            "title_cn": "WorldBench：世界模型评测基准",
             "abstract": "We evaluate on the WorldBench dataset.",
+            "tldr_cn": "WorldBench 是面向世界模型评测的数据集。",
             "links": {"paper": "https://arxiv.org/abs/2601.00001"},
+            "preview": "/assets/papers/paper-1/teaser.png",
         }
     ]
 
     associated = associate_datasets_with_papers(datasets, papers)
 
     assert associated[0]["links"]["paper"] == "https://arxiv.org/abs/2601.00001"
+    assert associated[0]["preview"] == "/assets/papers/paper-1/teaser.png"
     assert associated[0]["related_papers"] == [
-        {
-            "id": "paper-1",
-            "title": "WorldBench: A Benchmark for World Models",
-            "url": "https://arxiv.org/abs/2601.00001",
-        }
-    ]
+            {
+                "id": "paper-1",
+                "title": "WorldBench: A Benchmark for World Models",
+                "title_zh": "WorldBench：世界模型评测基准",
+                "url": "https://arxiv.org/abs/2601.00001",
+            }
+        ]
+    assert associated[0]["description_zh"] == "WorldBench 是面向世界模型评测的数据集。"
 
 
 def test_merge_dataset_entries_preserves_manual_entry_and_dedupes_hf_url():

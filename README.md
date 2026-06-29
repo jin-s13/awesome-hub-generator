@@ -98,6 +98,14 @@ python scripts/init_site.py --name awesome-cad-hub --title "Awesome CAD Hub"
 
 也可手动触发 gap-fill 查漏补缺：在 Actions 界面输入 `search_days`（如 30），搜索最近 30 天的论文。
 
+启用每日更新前，先在下游站点仓库配置：
+
+- Repository variable: `GENERATOR_REPO=jin-s13/awesome-hub-generator`（或你的 fork）
+- Required secret: `ARK_API_KEY`
+- Optional secrets: `ARK_API_BASE_URL`, `ARK_MODEL_NAME`, `SMART_MODEL_NAME`, `MINERU_API_KEY`, `OPENALEX_API_KEY`, `OPENALEX_MAILTO`
+
+workflow 默认每天 UTC 00:00 运行，即北京时间 08:00。下游仓库模式会把数据写入 `.local/data`、`.local/assets`、`.local/resource`，并从 `.local/website/dist` 部署 GitHub Pages。
+
 ## 网站特性
 
 | 页面 | 路由 | 内容 |
@@ -221,6 +229,18 @@ research:
 
 论文搜索会先进入统一来源层：arXiv、Hugging Face Daily/Trending、上游 awesome 项目和可选 AlphaXiv 增强源会被规范化、去重、合并 provenance，再进入候选池或展示池。AlphaXiv 默认关闭；不配置 endpoint 时不会发请求，也不需要额外 key。
 
+上游 awesome 项目既可以自动发现，也可以显式配置已知高质量仓库。显式仓库会优先抓取，适合避免 GitHub Search 匿名限流：
+
+```yaml
+research:
+  sources:
+    upstream_awesome: true
+  upstream_awesome:
+    repos:
+      - "LMD0311/Awesome-World-Model"
+    auto_discover: false
+```
+
 ### 调整评分策略
 
 在 `awesome.yaml` 的 `research.scoring` 中调整：
@@ -239,13 +259,22 @@ research:
   ranking:
     enabled: true              # 生成可解释的 read-first 排序分
     weights:
-      topical_relevance: 0.40
-      methodology_quality: 0.25
-      reproducibility: 0.25
-      recency: 0.10
+      topical_relevance: 0.25
+      citation_impact: 0.15
+      graph_prestige: 0.15
+      citation_velocity: 0.10
+      methodology_quality: 0.15
+      reproducibility: 0.15
+      recency: 0.05
+    citation_graph:
+      enabled: true            # 使用已同步的 OpenAlex-shaped 元数据构建局部引用图
+      fetch_openalex: false     # 可选：构建时按标题/DOI/arXiv 链接实时查询 OpenAlex
+      timeout: 20
+      workers: 6                # OpenAlex 并发请求数；网络较稳时可调到 10
+      api_key: ""                # 可选；也可用 OPENALEX_API_KEY 环境变量
 ```
 
-`scoring` 继续用于旧的关键词总分和过滤；`ranking` 会保留原始 `score.total`，额外写入 `score.read_first_score`、组件分和权重，用于首页排序、论文卡片和详情页解释。
+`scoring` 继续用于旧的关键词总分和过滤；`ranking` 会保留原始 `score.total`，额外写入 `score.read_first_score`、组件分、权重、field roles 和 rank sensitivity，用于首页排序、论文卡片和详情页解释。若论文中已有 OpenAlex-shaped 的 `openalex.id`、`cited_by_count`、`referenced_works` 等字段，或启用 `fetch_openalex` 后查询成功，还会生成 citation impact、citation velocity 和局部 graph prestige；没有这些字段时会自动排除，不会阻塞离线构建。OpenAlex 查询支持 `workers` 并发，适合批量刷新；匿名额度耗尽时可配置 `api_key` 或设置 `OPENALEX_API_KEY`。
 
 高 `read_first_score` 论文还会进入深度研究队列：
 
@@ -257,7 +286,7 @@ research:
     max_papers_per_run: 10
 ```
 
-该步骤会生成 `data/research_runs.yaml` 和 `resource/{paper_id}/research.md` 研究占位报告；`data/surveys.yaml` 会按 taxonomy、paper_type、tags 和评分组件自动生成文献综述骨架，供 `/surveys` 页面展示。
+该步骤会生成 `data/research_runs.yaml` 和 `resource/{paper_id}/research.md` 研究占位报告，并写入 critique 与 next research actions；`data/surveys.yaml` 会按 taxonomy、paper_type、tags 和评分组件自动生成结构化文献综述与综合归纳，供 `/analysis` 页面展示。
 
 ### 调整深度分析
 

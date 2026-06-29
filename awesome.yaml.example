@@ -160,6 +160,12 @@ research:
     enabled: false
     endpoint: ""
 
+  # === 上游 awesome 项目 ===
+  upstream_awesome:
+    # 可选：显式指定高质量 awesome repo，优先于 GitHub Search，适合规避匿名限流
+    repos: []
+    auto_discover: true
+
   # === 自动发现 GitHub 已有 awesome 项目 ===
   auto_discover:
     enabled: true
@@ -207,10 +213,20 @@ research:
   ranking:
     enabled: true
     weights:
-      topical_relevance: 0.40     # 与研究方向/关键词/分类体系的贴合度
-      methodology_quality: 0.25   # 方法、实验、结果等技术信号
-      reproducibility: 0.25       # 代码、数据、项目页、benchmark 等复现信号
-      recency: 0.10               # 近期论文加权
+      topical_relevance: 0.25     # 与研究方向/关键词/分类体系的贴合度
+      citation_impact: 0.15       # OpenAlex-shaped 引用影响力信号
+      graph_prestige: 0.15        # 局部引用图 PageRank 风格声望
+      citation_velocity: 0.10     # 年均引用速度，降低旧论文天然优势
+      methodology_quality: 0.15   # 方法、实验、结果等技术信号
+      reproducibility: 0.15       # 代码、数据、项目页、benchmark 等复现信号
+      recency: 0.05               # 近期论文加权
+    citation_graph:
+      enabled: true               # 有 OpenAlex-shaped 元数据时启用；缺失时自动跳过
+      fetch_openalex: false        # 可选：实时查询 OpenAlex；默认关闭以保持离线构建稳定
+      timeout: 20
+      workers: 6                   # OpenAlex 并发请求数；网络较稳时可调到 10
+      api_key: ""                   # 可选；也可用 OPENALEX_API_KEY 环境变量
+      mailto: ""                   # 可选：OpenAlex polite pool 邮箱
 
   # === 深度分析配置 ===
   deep_analysis:

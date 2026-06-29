@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
 
@@ -39,6 +40,7 @@ def reclassify_papers(
     project_description: str = "",
     classify_func: Classifier = classify_paper,
     limit: int | None = None,
+    workers: int = 1,
 ) -> Tuple[int, int]:
     """Update papers in-place with taxonomy classification.
 
@@ -57,11 +59,12 @@ def reclassify_papers(
     updated = 0
     rejected = 0
     target_papers = papers[:limit] if limit else papers
-    for index, paper in enumerate(target_papers, start=1):
+
+    def classify_one(index: int, paper: Dict[str, Any]) -> Tuple[int, Dict[str, Any] | None]:
         title = paper.get("title", "")
         abstract = paper.get("abstract", "")
         if not title or not abstract:
-            continue
+            return index, None
 
         print(f"[reclassify] [{index}/{len(target_papers)}] {title[:72]}...")
         result = classify_func(
@@ -72,10 +75,16 @@ def reclassify_papers(
             taxonomy,
             relevance_criteria,
         )
+        return index, result
+
+    def apply_result(paper: Dict[str, Any], result: Dict[str, Any] | None) -> None:
+        nonlocal updated, rejected
+        if not result:
+            return
         if context and relevance_criteria and result.get("relevant") is False:
             paper["relevant"] = False
             rejected += 1
-            continue
+            return
 
         paper_type = result.get("paper_type") or ["method"]
         if isinstance(paper_type, str):
@@ -94,6 +103,26 @@ def reclassify_papers(
 
         updated += 1
 
+    if workers <= 1:
+        for index, paper in enumerate(target_papers, start=1):
+            _, result = classify_one(index, paper)
+            apply_result(paper, result)
+        return updated, rejected
+
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as executor:
+        futures = {
+            executor.submit(classify_one, index, paper): (index, paper)
+            for index, paper in enumerate(target_papers, start=1)
+        }
+        for future in as_completed(futures):
+            _, paper = futures[future]
+            try:
+                _, result = future.result()
+            except Exception as exc:
+                print(f"[reclassify] failed: {paper.get('title', '')[:72]} ({exc})")
+                continue
+            apply_result(paper, result)
+
     return updated, rejected
 
 
@@ -103,6 +132,7 @@ def main() -> None:
     parser.add_argument("--hub", default="", help="Local hub name under .local/")
     parser.add_argument("--data-dir", default="", help="Override data directory")
     parser.add_argument("--limit", type=int, default=0, help="Limit papers for smoke tests")
+    parser.add_argument("--workers", type=int, default=1, help="Concurrent LLM classification workers")
     args = parser.parse_args()
 
     cwd = Path.cwd()
@@ -129,6 +159,7 @@ def main() -> None:
         config.get("research", {}),
         project_description=config.get("project", {}).get("description", ""),
         limit=args.limit or None,
+        workers=max(1, args.workers),
     )
     papers_path.write_text(
         yaml.dump(papers, allow_unicode=True, sort_keys=False, default_flow_style=False),

@@ -240,12 +240,106 @@ class MarkdownListParser:
     """解析 Markdown 列表格式的 awesome 列表"""
 
     @staticmethod
+    def _clean_text(text: str) -> str:
+        text = re.sub(r"<[^>]+>", "", text)
+        text = re.sub(r"[*_`]", "", text)
+        text = re.sub(r"\s+", " ", text)
+        return text.strip(" .;-–—")
+
+    @classmethod
+    def _parse_rich_awesome_line(cls, line: str, source_repo: str) -> Optional[Dict]:
+        bullet = re.match(r"^\s*[-*]\s+(.+)$", line)
+        if not bullet:
+            return None
+        body = bullet.group(1).strip()
+        link_matches = list(re.finditer(r"\[\[?([^\]]+?)\]\((https?://[^)]+)\)\]?", body))
+        if not link_matches:
+            return None
+
+        links: Dict[str, str] = {}
+        for match in link_matches:
+            label = cls._clean_text(match.group(1)).lower()
+            url = match.group(2).strip()
+            if "code" in label or "github" in label:
+                links.setdefault("code", url)
+            elif "project" in label:
+                links.setdefault("project", url)
+            elif "paper" in label or "arxiv" in label or is_academic_url(url):
+                links.setdefault("paper", url)
+            else:
+                links.setdefault(label or "link", url)
+
+        text = body
+        for match in reversed(link_matches):
+            text = text[:match.start()] + text[match.end():]
+
+        venue = "arXiv" if is_academic_url(links.get("paper", "")) else ""
+        venue_match = re.search(r"\*\*`([^`]+)`\*\*|\*\*([^*]*(?:20\d{2}|[’']\d{2}|\b\d{2}\b)[^*]*)\*\*", text)
+        if venue_match:
+            venue = cls._clean_text(venue_match.group(1) or venue_match.group(2) or venue)
+            text = text[:venue_match.start()].strip()
+
+        label_match = re.match(r"^\[(.*?)\]\s*(.*)$", text)
+        if label_match:
+            label = cls._clean_text(label_match.group(1))
+            rest = cls._clean_text(label_match.group(2))
+            title = rest or label
+        else:
+            title = cls._clean_text(text)
+
+        if not title:
+            return None
+
+        year = None
+        year_match = re.search(r"(20\d{2})", venue)
+        if year_match:
+            year = int(year_match.group(1))
+        else:
+            short_year = re.search(r"[’'](\d{2})|\b(\d{2})(?:\.\d+)?\b", venue)
+            if short_year:
+                yy = int(short_year.group(1) or short_year.group(2))
+                if 0 <= yy <= 40:
+                    year = 2000 + yy
+        arxiv_year = None
+        arxiv_match = re.search(r"arxiv\.org/abs/(\d{2})\d{2}\.\d+", links.get("paper", ""), re.I)
+        if arxiv_match:
+            arxiv_year = 2000 + int(arxiv_match.group(1))
+        if arxiv_year and (not year or (venue.lower().startswith("arxiv") and year != arxiv_year)):
+            year = arxiv_year
+
+        paper_id = slugify(f"{title[:60]}-{year}" if year else title[:60])
+        entry = {
+            "id": paper_id,
+            "title": title,
+            "year": year,
+            "venue": venue,
+            "category": "Others",
+            "tags": [],
+            "representations": [],
+            "input_modalities": [],
+            "output_modalities": [],
+            "links": links,
+            "preview": "/assets/placeholder.svg",
+            "sources": [{"repo": source_repo, "category": "Others"}],
+            "_description": "",
+        }
+        if not entry_is_paper(entry):
+            entry["_type"] = "resource"
+            entry["resource_type"] = detect_resource_type(next(iter(links.values()), ""))
+        return entry
+
+    @staticmethod
     def parse(readme: str, source_repo: str = "") -> List[Dict]:
         """解析 Markdown 列表，返回论文条目列表"""
         papers: List[Dict] = []
         pattern = r"^\s*[-*]\s+\[(.+?)\]\((.+?)\)(?:\s*[-–—]\s*(.+))?"
 
         for line in readme.split("\n"):
+            rich_entry = MarkdownListParser._parse_rich_awesome_line(line, source_repo)
+            if rich_entry:
+                papers.append(rich_entry)
+                continue
+
             m = re.match(pattern, line)
             if not m:
                 continue

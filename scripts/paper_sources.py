@@ -137,19 +137,31 @@ def fetch_awesome_source(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Discover and parse upstream awesome repositories without writing files."""
     from scripts.discover_sources import GitHubDiscoverer
     from scripts.ingest_source import FormatDetector, JsonParser, MarkdownListParser, MarkdownTableParser, YamlParser
+    from scripts.url_classify import entry_is_paper
 
     research = _research(config)
     auto = research.get("auto_discover", {}) if isinstance(research.get("auto_discover", {}), dict) else {}
+    upstream = research.get("upstream_awesome", {}) if isinstance(research.get("upstream_awesome", {}), dict) else {}
     keywords = research.get("keywords", [])
-    if not keywords:
+    configured_repos = [
+        str(repo).strip()
+        for repo in upstream.get("repos", [])
+        if str(repo).strip() and "/" in str(repo)
+    ]
+    auto_enabled = bool(upstream.get("auto_discover", auto.get("enabled", True)))
+    if not keywords and not configured_repos:
         return []
 
     discoverer = GitHubDiscoverer()
-    sources = discoverer.discover(
-        keywords,
-        min_stars=auto.get("min_stars", 5),
-        max_sources=auto.get("max_sources", 10),
-    )
+    sources = [discoverer.source_from_repo(repo) for repo in configured_repos]
+    if auto_enabled and keywords:
+        discovered = discoverer.discover(
+            keywords,
+            min_stars=auto.get("min_stars", 5),
+            max_sources=auto.get("max_sources", 10),
+        )
+        seen = {source.full_name for source in sources}
+        sources.extend(source for source in discovered if source.full_name not in seen)
     papers: List[Dict[str, Any]] = []
     for source in sources:
         readme = discoverer.fetch_readme(source)
@@ -169,9 +181,9 @@ def fetch_awesome_source(config: Dict[str, Any]) -> List[Dict[str, Any]]:
                     papers.extend(JsonParser.parse(content, source.full_name))
         elif fmt == "markdown_table":
             papers.extend(MarkdownTableParser.parse(readme, source.full_name))
-        elif fmt in ("markdown_list", "html_list"):
+        elif fmt in ("markdown_list", "html_list", "unknown"):
             papers.extend(MarkdownListParser.parse(readme, source.full_name))
-    return papers
+    return [paper for paper in papers if entry_is_paper(paper)]
 
 
 def fetch_alphaxiv_source(config: Dict[str, Any], query: Optional[str] = None) -> List[Dict[str, Any]]:

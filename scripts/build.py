@@ -16,6 +16,7 @@ import sys
 import shutil
 import subprocess
 from pathlib import Path
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -445,6 +446,23 @@ def apply_overrides(data_dir: Path, overrides_config: dict) -> None:
     save_yaml(papers_yaml, papers)
 
 
+def infer_base_path(project: dict) -> str:
+    """Return the URL base path for project-scoped static hosting."""
+    configured = project.get("base_path")
+    if configured is not None:
+        value = str(configured).strip()
+        if not value or value == "/":
+            return ""
+        return "/" + value.strip("/")
+
+    site_url = str(project.get("site_url", "")).strip()
+    if not site_url:
+        return ""
+    parsed = urlparse(site_url)
+    path = (parsed.path or "").rstrip("/")
+    return "" if path in ("", "/") else path
+
+
 def generate_site(config: dict, output_dir) -> None:
     """从模板生成 Astro 网站到输出目录"""
     output_dir = Path(output_dir)
@@ -456,6 +474,7 @@ def generate_site(config: dict, output_dir) -> None:
         "PROJECT_SLUG": project.get("name", "awesome-research-hub").lower().replace(" ", "-"),
         "PROJECT_DESCRIPTION": project.get("description", ""),
         "SITE_URL": project.get("site_url", "https://example.github.io/awesome-hub"),
+        "BASE_PATH": infer_base_path(project),
         "GITHUB_URL": project.get("github_url", "https://github.com/example/awesome-hub"),
         "GENERATOR_REPO": project.get("generator_repo", "your-username/awesome-hub-generator"),
         "FOOTER_HTML": website.get("footer", "Built with awesome-hub-generator."),

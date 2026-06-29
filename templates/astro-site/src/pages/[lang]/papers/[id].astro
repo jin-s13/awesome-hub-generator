@@ -48,6 +48,32 @@ function linkLabel(key: string) {
 }
 const score = paper.score;
 const analysis = displayAnalysis;
+function asList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || '').trim()).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : [];
+  }
+  return [];
+}
+function asText(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || '').trim()).filter(Boolean).join(' ');
+  }
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+  return '';
+}
+const analysisObject = analysis && typeof analysis === 'object' ? analysis : null;
+const analysisFallbackText = typeof analysis === 'string' ? analysis.trim() : '';
+const analysisInnovations = analysisObject ? asList(analysisObject.innovations ?? analysisObject.innovation) : [];
+const analysisMethodology = analysisObject ? asText(analysisObject.methodology) : analysisFallbackText;
+const analysisKeyResults = analysisObject ? asText(analysisObject.key_results ?? analysisObject.keyResults) : '';
+const analysisLimitations = analysisObject ? asList(analysisObject.limitations ?? analysisObject.limitation) : [];
+const analysisTechStack = analysisObject ? asList(analysisObject.tech_stack ?? analysisObject.techStack) : [];
 const displayScore = score?.read_first_score ?? score?.total;
 const scoreLevel = displayScore != null
   ? displayScore >= 80 ? 'high'
@@ -56,9 +82,20 @@ const scoreLevel = displayScore != null
   : null;
 const scoreComponentLabels = {
   topical_relevance: { en: 'Topical relevance', zh: '主题相关性' },
+  citation_impact: { en: 'Citation impact', zh: '引用影响力' },
+  graph_prestige: { en: 'Graph prestige', zh: '图谱声望' },
+  citation_velocity: { en: 'Citation velocity', zh: '引用速度' },
   methodology_quality: { en: 'Methodology quality', zh: '方法质量' },
   reproducibility: { en: 'Reproducibility', zh: '可复现性' },
   recency: { en: 'Recency', zh: '近期性' },
+};
+const fieldRoleLabels: Record<string, Record<Lang, string>> = {
+  foundation: { en: 'Foundation', zh: '基础论文' },
+  frontier: { en: 'Frontier', zh: '前沿论文' },
+  bridge: { en: 'Bridge', zh: '桥接论文' },
+  methodology_anchor: { en: 'Methodology anchor', zh: '方法锚点' },
+  reproducibility_anchor: { en: 'Reproducibility anchor', zh: '复现锚点' },
+  candidate: { en: 'Candidate', zh: '候选论文' },
 };
 const markerLabels: Record<string, string> = {
   ablation: '消融',
@@ -111,6 +148,18 @@ function formatEvidenceDetail(item: { source?: string; field?: string; detail?: 
   if (detail.startsWith('markers=')) {
     return `命中信号：${formatMarkers(detail.replace('markers=', ''))}`;
   }
+  if (detail.startsWith('citation_normalized_percentile=')) {
+    return `归一化引用分位：${detail.replace('citation_normalized_percentile=', '')}`;
+  }
+  if (detail.startsWith('cited_by_count=')) {
+    return `引用数：${detail.replace('cited_by_count=', '')}`;
+  }
+  if (detail.startsWith('local_pagerank=')) {
+    return `局部 PageRank：${detail.replace('local_pagerank=', '')}`;
+  }
+  if (detail.startsWith('velocity=')) {
+    return `年均引用：${detail.replace('velocity=', '')}`;
+  }
   if (detail.includes('pdf=') || detail.includes('code=') || detail.includes('dataset=')) {
     const parts = Object.fromEntries(
       detail.split(';').map((part) => {
@@ -127,6 +176,8 @@ function formatEvidenceDetail(item: { source?: string; field?: string; detail?: 
   }
   return detail === 'missing' ? '缺失' : detail;
 }
+const fieldRoles = score?.field_roles || [];
+const rankSensitivity = score?.rank_sensitivity;
 const scoreComponentEntries = score?.components
   ? Object.entries(score.components)
       .filter(([, component]) => component && component.available !== false && typeof component.value === 'number')
@@ -172,8 +223,8 @@ const typeLabel = paperTypeLabel(paper);
         <h2>{lang === 'zh' ? 'Read-first 评分解释' : 'Read-first score'}</h2>
         <p class="score-summary">
           {lang === 'zh'
-            ? `综合优先阅读分 ${displayScore}，由主题、方法、可复现性和近期性加权得到。`
-            : `Read-first score ${displayScore}, weighted from topical fit, method quality, reproducibility, and recency.`}
+            ? `综合优先阅读分 ${displayScore}，由主题、引用、图谱、方法、可复现性和近期性等信号加权得到。`
+            : `Read-first score ${displayScore}, weighted from topical fit, citation, graph, method, reproducibility, and recency signals.`}
           {score?.total != null && score?.read_first_score != null && score.total !== score.read_first_score && (
             <span>{lang === 'zh' ? ` 原始总分保留为 ${score.total}。` : ` Original total remains ${score.total}.`}</span>
           )}
@@ -208,6 +259,28 @@ const typeLabel = paperTypeLabel(paper);
         {score?.warnings && score.warnings.length > 0 && (
           <p class="score-warnings">{score.warnings.join(' · ')}</p>
         )}
+        {(fieldRoles.length > 0 || rankSensitivity) && (
+          <div class="rank-context">
+            {fieldRoles.length > 0 && (
+              <div>
+                <h3>{lang === 'zh' ? '研究版图角色' : 'Field roles'}</h3>
+                <div class="tag-row">
+                  {fieldRoles.map((role) => <span class="tag">{fieldRoleLabels[role]?.[lang] || role.replace(/_/g, ' ')}</span>)}
+                </div>
+              </div>
+            )}
+            {rankSensitivity && (
+              <div>
+                <h3>{lang === 'zh' ? '排序敏感性' : 'Rank sensitivity'}</h3>
+                <p>
+                  {lang === 'zh'
+                    ? `稳定性：${rankSensitivity.stability || 'unknown'}；排名波动范围：${rankSensitivity.rank_range ?? 0}。`
+                    : `Stability: ${rankSensitivity.stability || 'unknown'}; rank range: ${rankSensitivity.rank_range ?? 0}.`}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     )}
 
@@ -232,43 +305,43 @@ const typeLabel = paperTypeLabel(paper);
       <div class="detail-analysis">
         <h2>{_t('paper.deepAnalysis')}</h2>
 
-        {analysis.innovations && analysis.innovations.length > 0 && (
+        {analysisInnovations.length > 0 && (
           <div class="analysis-section">
             <h3>{_t('paper.innovations')}</h3>
             <ul>
-              {analysis.innovations.map((item) => <li>{item}</li>)}
+              {analysisInnovations.map((item) => <li>{item}</li>)}
             </ul>
           </div>
         )}
 
-        {analysis.methodology && (
+        {analysisMethodology && (
           <div class="analysis-section">
             <h3>{_t('paper.methodology')}</h3>
-            <p>{analysis.methodology}</p>
+            <p>{analysisMethodology}</p>
           </div>
         )}
 
-        {analysis.key_results && (
+        {analysisKeyResults && (
           <div class="analysis-section">
             <h3>{_t('paper.keyResults')}</h3>
-            <p>{analysis.key_results}</p>
+            <p>{analysisKeyResults}</p>
           </div>
         )}
 
-        {analysis.limitations && analysis.limitations.length > 0 && (
+        {analysisLimitations.length > 0 && (
           <div class="analysis-section">
             <h3>{_t('paper.limitations')}</h3>
             <ul>
-              {analysis.limitations.map((item) => <li>{item}</li>)}
+              {analysisLimitations.map((item) => <li>{item}</li>)}
             </ul>
           </div>
         )}
 
-        {analysis.tech_stack && analysis.tech_stack.length > 0 && (
+        {analysisTechStack.length > 0 && (
           <div class="analysis-section">
             <h3>{_t('paper.techStack')}</h3>
             <div class="tag-row">
-              {analysis.tech_stack.map((t) => <span class="tag">{t}</span>)}
+              {analysisTechStack.map((t) => <span class="tag">{t}</span>)}
             </div>
           </div>
         )}
@@ -348,6 +421,17 @@ const typeLabel = paperTypeLabel(paper);
     margin-bottom: 0;
   }
   .score-component-bars { display: flex; flex-direction: column; gap: 12px; }
+  .rank-context {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    margin-top: 18px;
+  }
+  .rank-context p {
+    color: var(--color-text-secondary);
+    font-size: 14px;
+    line-height: 1.6;
+  }
   .score-component-row {
     display: grid;
     grid-template-columns: minmax(140px, 180px) minmax(120px, 1fr) minmax(32px, auto);

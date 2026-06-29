@@ -3,6 +3,67 @@
 from scripts.paper_sources import collect_paper_sources
 
 
+def test_markdown_list_parser_handles_awesome_badge_links():
+    from scripts.ingest_source import MarkdownListParser
+
+    readme = (
+        "- [**UniFuture**] UniFuture: A 4D Driving World Model for Future Generation and Perception. "
+        "**`ICRA 26`** [[Paper](https://arxiv.org/abs/2503.13587)] "
+        "[[Code](https://github.com/dk-liang/UniFuture)] "
+        "[[Project](https://dk-liang.github.io/UniFuture/)]"
+    )
+
+    papers = MarkdownListParser.parse(readme, "LMD0311/Awesome-World-Model")
+
+    assert len(papers) == 1
+    assert papers[0]["title"] == "UniFuture: A 4D Driving World Model for Future Generation and Perception"
+    assert papers[0]["year"] == 2026
+    assert papers[0]["venue"] == "ICRA 26"
+    assert papers[0]["links"]["paper"] == "https://arxiv.org/abs/2503.13587"
+    assert papers[0]["links"]["code"] == "https://github.com/dk-liang/UniFuture"
+    assert papers[0]["links"]["project"] == "https://dk-liang.github.io/UniFuture/"
+
+
+def test_markdown_list_parser_uses_arxiv_url_year_when_venue_has_typo():
+    from scripts.ingest_source import MarkdownListParser
+
+    readme = (
+        "- **PerceptUI**: PerceptUI: LLM Agents as Human-Aligned Synthetic Users for UI/UX Evaluation. "
+        "**`arXiv 05.6`** [[Paper](https://arxiv.org/abs/2606.05697)]"
+    )
+
+    papers = MarkdownListParser.parse(readme, "LMD0311/Awesome-World-Model")
+
+    assert papers[0]["year"] == 2026
+
+
+def test_sync_papers_preserves_upstream_awesome_metadata(tmp_path):
+    from scripts.sync import load_yaml, sync_papers
+
+    output = tmp_path / "papers.yaml"
+    added = sync_papers(
+        [
+            {
+                "title": "UniFuture: A 4D Driving World Model for Future Generation and Perception",
+                "abstract": "",
+                "year": 2026,
+                "venue": "ICRA 26",
+                "links": {"paper": "https://arxiv.org/abs/2503.13587"},
+                "sources": [{"repo": "LMD0311/Awesome-World-Model", "category": "Others"}],
+            }
+        ],
+        output,
+        source_repo="unified-sources",
+        skip_llm=True,
+    )
+
+    papers = load_yaml(output)
+
+    assert added == 1
+    assert papers[0]["venue"] == "ICRA 26"
+    assert papers[0]["sources"][0]["repo"] == "LMD0311/Awesome-World-Model"
+
+
 def test_collect_paper_sources_merges_enabled_sources_and_dedupes(monkeypatch):
     calls = []
 
@@ -104,3 +165,88 @@ def test_collect_paper_sources_records_nonfatal_source_errors(monkeypatch):
     assert len(result["papers"]) == 1
     assert result["sources"]["arxiv"]["count"] == 0
     assert "temporary arxiv outage" in result["sources"]["arxiv"]["error"]
+
+
+def test_fetch_awesome_source_uses_configured_repos_without_auto_discover(monkeypatch):
+    from scripts.discover_sources import SourceInfo
+    from scripts.paper_sources import fetch_awesome_source
+
+    calls = []
+
+    class FakeDiscoverer:
+        def source_from_repo(self, repo):
+            calls.append(("source_from_repo", repo))
+            return SourceInfo(
+                full_name=repo,
+                html_url=f"https://github.com/{repo}",
+                stars=123,
+                description="Curated world-model papers",
+                default_branch="main",
+            )
+
+        def discover(self, keywords, min_stars=5, max_sources=10):
+            calls.append(("discover", tuple(keywords)))
+            raise AssertionError("auto discovery should not run for explicit upstream repos")
+
+        def fetch_readme(self, source):
+            calls.append(("fetch_readme", source.full_name))
+            return "- [Dreamer: Reinforcement Learning with Latent Dynamics](https://arxiv.org/abs/1912.01603)"
+
+        def list_repo_files(self, source):
+            calls.append(("list_repo_files", source.full_name))
+            return ["README.md"]
+
+    monkeypatch.setattr("scripts.discover_sources.GitHubDiscoverer", FakeDiscoverer)
+
+    papers = fetch_awesome_source(
+        {
+            "research": {
+                "keywords": ["world model"],
+                "sources": {"upstream_awesome": True},
+                "upstream_awesome": {
+                    "repos": ["curated/awesome-world-models"],
+                    "auto_discover": False,
+                },
+            }
+        }
+    )
+
+    assert [paper["title"] for paper in papers] == ["Dreamer: Reinforcement Learning with Latent Dynamics"]
+    assert papers[0]["links"]["paper"] == "https://arxiv.org/abs/1912.01603"
+    assert papers[0]["sources"][0]["repo"] == "curated/awesome-world-models"
+    assert ("discover", ("world model",)) not in calls
+
+
+def test_fetch_awesome_source_filters_non_paper_resource_links(monkeypatch):
+    from scripts.discover_sources import SourceInfo
+    from scripts.paper_sources import fetch_awesome_source
+
+    class FakeDiscoverer:
+        def source_from_repo(self, repo):
+            return SourceInfo(repo, f"https://github.com/{repo}", 10, "", "main")
+
+        def fetch_readme(self, source):
+            return "\n".join(
+                [
+                    "- [World Model Workshop](https://example.com/workshop)",
+                    "- [Dreamer](https://arxiv.org/abs/1912.01603)",
+                ]
+            )
+
+        def list_repo_files(self, source):
+            return ["README.md"]
+
+    monkeypatch.setattr("scripts.discover_sources.GitHubDiscoverer", FakeDiscoverer)
+
+    papers = fetch_awesome_source(
+        {
+            "research": {
+                "upstream_awesome": {
+                    "repos": ["curated/awesome-world-models"],
+                    "auto_discover": False,
+                },
+            }
+        }
+    )
+
+    assert [paper["title"] for paper in papers] == ["Dreamer"]
