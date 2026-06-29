@@ -2,7 +2,7 @@
 import Base from '../../layouts/Base.astro';
 import { getSurveys } from '../../lib/data';
 import { useTranslations } from '../../lib/i18n';
-import { type Lang } from '../../lib/lang';
+import { localizePath, type Lang } from '../../lib/lang';
 
 export function getStaticPaths() {
   return [{ params: { lang: 'en' } }, { params: { lang: 'zh' } }];

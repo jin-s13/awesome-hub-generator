@@ -128,6 +128,8 @@ class TestAstroTemplate:
         assert "研究路线" in analysis_page
         assert "localizedTopicLabel" in analysis_page
         assert "componentLabel" in analysis_page
+        assert "import { localizePath, type Lang } from '../../lib/lang';" in analysis_page
+        assert "localizePath(`/papers/${paper.id}`, lang)" in analysis_page
         assert 'class="survey-paper-list"' not in analysis_page
         assert "survey-paper-link" not in analysis_page
 
