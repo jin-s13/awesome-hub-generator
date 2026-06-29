@@ -53,6 +53,7 @@ def fetch_references(
     url = f"{_S2_BASE}/paper/arXiv:{arxiv_id}/references"
     fields = "title,abstract,authors,year,externalIds"
     params = {"fields": fields, "limit": min(max_refs, 100)}
+    data: Dict[str, Any] | None = None
 
     for attempt in range(3):
         try:
@@ -74,6 +75,10 @@ def fetch_references(
                 continue
             logger.error(f"S2 API failed for {arxiv_id}: {e}")
             return []
+
+    if data is None:
+        logger.warning(f"S2 API returned no data for {arxiv_id} after retries; skipping references")
+        return []
 
     refs = []
     for item in data.get("data", []):
