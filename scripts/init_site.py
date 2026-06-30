@@ -24,6 +24,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from scripts.repo_readme import write_repo_files
 
 
 def init_site(name: str, title: str, output: str, description: str = "") -> None:
@@ -80,26 +83,13 @@ def init_site(name: str, title: str, output: str, description: str = "") -> None
     )
     print(f"[init] 已生成: .gitignore")
 
-    # 4. 生成 README.md (简短说明)
-    readme = site_dir / "README.md"
-    readme.write_text(
-        f"# {title}\n\n"
-        f"Auto-curated awesome list powered by "
-        f"[awesome-hub-generator](https://github.com/your-org/awesome-hub-generator).\n\n"
-        f"## 快速开始\n\n"
-        f"```bash\n"
-        f"# 全量构建（首次）\n"
-        f"python ../awesome-hub-generator/scripts/build.py\n\n"
-        f"# 每日增量更新\n"
-        f"python ../awesome-hub-generator/scripts/update.py\n\n"
-        f"# 查漏补缺（搜索最近30天）\n"
-        f"python ../awesome-hub-generator/scripts/update.py --search-days 30\n"
-        f"```\n\n"
-        f"## 配置\n\n"
-        f"编辑 `awesome.yaml` 修改关键词、分类等。\n",
-        encoding="utf-8",
-    )
-    print(f"[init] 已生成: README.md")
+    # 4. 生成 README.md + AWESOME.md
+    for data_file in ("papers.yaml", "datasets.yaml", "research_runs.yaml"):
+        target = site_dir / "data" / data_file
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("[]\n", encoding="utf-8")
+    write_repo_files(site_dir / "awesome.yaml", site_dir / "data", site_dir)
+    print(f"[init] 已生成: README.md / AWESOME.md")
 
     # 5. 提示后续步骤
     print(f"\n[init] 站点初始化完成: {site_dir}")

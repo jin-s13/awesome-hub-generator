@@ -114,6 +114,12 @@ jobs:
           fi
           python awesome-hub-generator/scripts/update.py $SEARCH_DAYS_ARGS --skip-build
 
+      - name: Refresh repository README
+        if: github.event_name != 'push' && github.event.inputs.skip_update != 'true'
+        run: |
+          cd ${{ github.workspace }}
+          python awesome-hub-generator/scripts/repo_readme.py --config awesome.yaml --data-dir .local/data --output-dir .
+
       - name: Build site
         if: github.event.inputs.skip_build != 'true'
         run: |
@@ -148,7 +154,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -f .local/data/ .local/assets/ .local/resource/ || true
+          git add -f .local/data/ .local/assets/ .local/resource/ README.md AWESOME.md || true
           if git diff --staged --quiet; then
             echo "No data changes to commit"
           else
