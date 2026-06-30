@@ -83,8 +83,12 @@ python scripts/build.py --hub awesome-cad-hub
 ```bash
 cd .local/awesome-cad-hub/website
 npm install
-npm run dev
+cd ../../..
+python scripts/serve_hub.py --hub awesome-cad-hub --port 4327
 ```
+
+`serve_hub.py` 会在启动前检查 `.local/{hub}` 是否是干净的 git checkout；如果是，会先执行
+`git pull --ff-only origin main`，再启动 Astro dev server。若存在本地未提交改动，则会跳过同步并继续使用本地内容启动，避免覆盖人工修改。
 
 ### 6. 下游仓库部署
 
@@ -105,6 +109,8 @@ python scripts/init_site.py --name awesome-cad-hub --title "Awesome CAD Hub"
 - Optional secrets: `ARK_API_BASE_URL`, `ARK_MODEL_NAME`, `SMART_MODEL_NAME`, `MINERU_API_KEY`, `OPENALEX_API_KEY`, `OPENALEX_MAILTO`
 
 workflow 默认每天 UTC 00:00 运行，即北京时间 08:00。下游仓库模式会把数据写入 `.local/data`、`.local/assets`、`.local/resource`，并从 `.local/website/dist` 部署 GitHub Pages。
+
+下游项目需要读取结构化元数据时，应读取 hub 仓库 `main` 分支的 `data/`、`assets/` 和 `resource/`。`gh-pages` 分支只保存已经构建好的静态网页产物，适合浏览器访问，不适合作为元数据源。
 
 ## 网站特性
 
@@ -315,8 +321,8 @@ cp .env.example .env  # 编辑填入 API Key
 # 4. 全量构建
 python scripts/build.py --hub awesome-cad-hub
 
-# 5. 本地预览
-cd .local/awesome-cad-hub/website && npm run dev
+# 5. 本地预览（启动前自动同步 .local/awesome-cad-hub）
+python scripts/serve_hub.py --hub awesome-cad-hub --port 4327
 
 # 6. 增量更新（每日）
 python scripts/update.py --hub awesome-cad-hub
