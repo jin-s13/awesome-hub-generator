@@ -113,7 +113,7 @@ def render_readme(config: dict[str, Any], papers: list[dict[str, Any]], data_dir
             "",
             description,
             "",
-            "A living, research-oriented awesome list for world models: papers, benchmarks, datasets,",
+            "A living, research-oriented awesome list: papers, benchmarks, datasets,",
             "citation signals, TLDRs, deep analysis notes, and literature-review style summaries.",
             "",
             " ".join(links),

@@ -26,6 +26,7 @@ def test_render_readme_links_web_ui_awesome_list_and_generator(tmp_path):
     assert "[Generator](https://github.com/jin-s13/awesome-hub-generator)" in readme
     assert "main:data/" in readme
     assert "gh-pages" in readme
+    assert "world models" not in readme.lower()
 
 
 def test_render_awesome_outputs_traditional_paper_table(tmp_path):
@@ -53,4 +54,3 @@ def test_render_awesome_outputs_traditional_paper_table(tmp_path):
     assert "| Year | Score | Type | Paper | TLDR |" in awesome
     assert "[Paper 1](https://arxiv.org/abs/1234.5678)" in awesome
     assert "88.2" in awesome
-
