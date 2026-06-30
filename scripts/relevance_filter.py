@@ -18,21 +18,17 @@ logger = logging.getLogger("relevance_filter")
 try:
     from scripts.llm_cache import (
         LLMCallResult,
-        estimate_tokens_from_messages,
-        estimate_tokens_from_text,
         get_default_cache,
         paper_identity_from,
-        usage_from_provider,
     )
+    from scripts.openai_responses import call_openai_responses
 except ImportError:
     from llm_cache import (  # type: ignore
         LLMCallResult,
-        estimate_tokens_from_messages,
-        estimate_tokens_from_text,
         get_default_cache,
         paper_identity_from,
-        usage_from_provider,
     )
+    from openai_responses import call_openai_responses  # type: ignore
 
 # LLM config
 API_KEY = os.environ.get("ARK_API_KEY", "")
@@ -76,34 +72,17 @@ CAD_BROAD_KEYWORDS = [
 # LLM 调用
 # ---------------------------------------------------------------------------
 
-def _chat_completion_call(messages: List[Dict], max_tokens: int) -> LLMCallResult:
-    """Call chat/completions and return response text with token usage."""
-    import urllib.request
-
-    payload = json.dumps({
-        "model": MODEL_NAME,
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": 0.1,
-    }).encode("utf-8")
-
-    req = urllib.request.Request(
-        f"{API_BASE_URL}/chat/completions",
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {API_KEY}",
-        },
+def _responses_call(messages: List[Dict], max_tokens: int) -> LLMCallResult:
+    """Call /responses and return response text with token usage."""
+    return call_openai_responses(
+        api_key=API_KEY,
+        base_url=API_BASE_URL,
+        model=MODEL_NAME,
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=0.1,
+        timeout=30,
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-        content = data["choices"][0]["message"]["content"]
-        usage = usage_from_provider(
-            data.get("usage"),
-            prompt_fallback=estimate_tokens_from_messages(messages),
-            completion_fallback=estimate_tokens_from_text(content),
-        )
-        return LLMCallResult.from_text(content, usage)
 
 def _llm_check_relevance(title: str, abstract: str, research_context: str,
                          relevance_criteria: Optional[Dict] = None) -> Optional[bool]:
@@ -166,7 +145,7 @@ Return ONLY valid JSON, no other text."""
                 "relevance_criteria": relevance_criteria or {},
             },
             messages=messages,
-            call_func=lambda: _chat_completion_call(messages, 256),
+            call_func=lambda: _responses_call(messages, 256),
         ).text
         # Extract JSON from response
         json_match = re.search(r'\{[^{}]*"relevant"[^{}]*\}', content, re.DOTALL)
@@ -224,7 +203,7 @@ Return ONLY valid JSON, no other text."""
             abstract=abstract,
             criteria={"negative_keywords": negative_keywords[:15]},
             messages=messages,
-            call_func=lambda: _chat_completion_call(messages, 256),
+            call_func=lambda: _responses_call(messages, 256),
         ).text
         json_match = re.search(r'\{[^{}]*"is_excluded"[^{}]*\}', content, re.DOTALL)
         if json_match:

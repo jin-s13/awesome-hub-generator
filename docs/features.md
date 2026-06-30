@@ -321,20 +321,20 @@ Stage 3: Fallback（LLM 不可用时）
 
 ### 4.2 LLM 调用方式
 
-所有 LLM 调用统一使用火山引擎 Ark API（兼容 OpenAI 格式）:
+所有 LLM 调用统一使用 OpenAI-compatible Responses HTTP API:
 
 ```python
-POST {API_BASE_URL}/chat/completions
+POST {API_BASE_URL}/responses
 Authorization: Bearer {API_KEY}
 {
   "model": "{MODEL_NAME}",
-  "messages": [{"role": "user", "content": "{prompt}"}],
-  "max_tokens": 1024,
+  "input": [{"role": "user", "content": "{prompt}"}],
+  "max_output_tokens": 1024,
   "temperature": 0.1
 }
 ```
 
-- 使用标准库 `urllib.request`，不依赖 `openai` Python SDK
+- 使用 `requests` 直接调用 HTTP 接口，不依赖 `openai` 或 Ark Python SDK
 - `temperature: 0.1` 保证输出一致性
 - JSON 输出通过正则 `\{[^{}]*"field_name"[^{}]*\}` 提取
 

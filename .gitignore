@@ -4,6 +4,7 @@ dist/
 .astro/
 .env
 .DS_Store
+*.swp
 __pycache__/
 *.pyc
 output/

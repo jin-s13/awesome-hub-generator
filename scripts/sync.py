@@ -31,71 +31,51 @@ if _env_path.exists():
 import yaml
 import requests
 from slugify import slugify
-from volcenginesdkarkruntime import Ark
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 try:
     from scripts.llm_cache import (
         LLMCallResult,
-        estimate_tokens_from_messages,
-        estimate_tokens_from_text,
         get_default_cache,
         paper_identity_from,
-        usage_from_provider,
     )
+    from scripts.openai_responses import call_openai_responses
 except ImportError:
     from llm_cache import (  # type: ignore
         LLMCallResult,
-        estimate_tokens_from_messages,
-        estimate_tokens_from_text,
         get_default_cache,
         paper_identity_from,
-        usage_from_provider,
     )
+    from openai_responses import call_openai_responses  # type: ignore
 
 ROOT = Path(__file__).resolve().parents[1]
 
 # ---- LLM 调用 ----
 
-def _get_ark_client() -> Optional[Ark]:
-    """获取火山引擎 Ark 客户端"""
-    api_key = os.environ.get("ARK_API_KEY", "")
-    base_url = os.environ.get("ARK_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/coding/v3")
-    if not api_key:
+def _llm_configured() -> bool:
+    """Return whether model calls are configured."""
+    if not os.environ.get("ARK_API_KEY", ""):
         print("[sync] 警告: 未配置 ARK_API_KEY，跳过 LLM 分类")
-        return None
-    return Ark(base_url=base_url, api_key=api_key)
+        return False
+    return True
 
 
 def llm_chat_with_usage(messages: List[Dict], model: str = "", max_tokens: int = 1024) -> LLMCallResult:
-    """调用火山引擎 DeepSeek LLM，返回文本和 token 用量。"""
-    client = _get_ark_client()
-    if not client:
+    """Call an OpenAI-compatible /responses endpoint and return text plus token usage."""
+    if not _llm_configured():
         return LLMCallResult("")
 
     model = model or os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash")
+    base_url = os.environ.get("ARK_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/coding/v3")
 
     try:
-        response = client.responses.create(
+        return call_openai_responses(
+            api_key=os.environ["ARK_API_KEY"],
+            base_url=base_url,
             model=model,
-            input=messages,
+            messages=messages,
             temperature=0.1,
-            max_output_tokens=max_tokens,
+            max_tokens=max_tokens,
         )
-        # responses API 返回格式
-        text = ""
-        for output in response.output:
-            if output.type == "message":
-                for content in output.content:
-                    if content.type == "output_text":
-                        text = content.text
-                        break
-        usage = usage_from_provider(
-            getattr(response, "usage", None),
-            prompt_fallback=estimate_tokens_from_messages(messages),
-            completion_fallback=estimate_tokens_from_text(text),
-        )
-        return LLMCallResult.from_text(text, usage)
     except Exception as e:
         print(f"[sync] LLM 调用失败: {e}")
         return LLMCallResult("")

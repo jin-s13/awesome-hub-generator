@@ -26,21 +26,17 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 try:
     from scripts.llm_cache import (
         LLMCallResult,
-        estimate_tokens_from_messages,
-        estimate_tokens_from_text,
         get_default_cache,
         paper_identity_from,
-        usage_from_provider,
     )
+    from scripts.openai_responses import call_openai_responses
 except ImportError:
     from llm_cache import (  # type: ignore
         LLMCallResult,
-        estimate_tokens_from_messages,
-        estimate_tokens_from_text,
         get_default_cache,
         paper_identity_from,
-        usage_from_provider,
     )
+    from openai_responses import call_openai_responses  # type: ignore
 
 logger = logging.getLogger("generate_interpretations")
 
@@ -67,14 +63,12 @@ MODEL_NAME = os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash")
 SMART_MODEL = os.environ.get("SMART_MODEL_NAME", "deepseek-v4-pro")
 
 
-def _get_ark_client():
-    """Get Ark client."""
-    from volcenginesdkarkruntime import Ark
-
+def _llm_configured() -> bool:
+    """Return whether model calls are configured."""
     if not API_KEY:
         logger.warning("ARK_API_KEY not set, skipping LLM calls")
-        return None
-    return Ark(base_url=API_BASE_URL, api_key=API_KEY)
+        return False
+    return True
 
 
 @retry(
@@ -82,27 +76,16 @@ def _get_ark_client():
     wait=wait_exponential(multiplier=1, min=2, max=10),
     reraise=True,
 )
-def _llm_call_once(client: Any, messages: List[Dict], model: str, max_tokens: int) -> LLMCallResult:
+def _llm_call_once(messages: List[Dict], model: str, max_tokens: int) -> LLMCallResult:
     """Single LLM call attempt (retried by tenacity on transient failures)."""
-    response = client.responses.create(
+    return call_openai_responses(
+        api_key=API_KEY,
+        base_url=API_BASE_URL,
         model=model,
-        input=messages,
+        messages=messages,
         temperature=0.1,
-        max_output_tokens=max_tokens,
+        max_tokens=max_tokens,
     )
-    text = ""
-    for output in response.output:
-        if output.type == "message":
-            for content in output.content:
-                if content.type == "output_text":
-                    text = content.text
-                    break
-    usage = usage_from_provider(
-        getattr(response, "usage", None),
-        prompt_fallback=estimate_tokens_from_messages(messages),
-        completion_fallback=estimate_tokens_from_text(text),
-    )
-    return LLMCallResult.from_text(text, usage)
 
 
 def _llm_chat(
@@ -117,8 +100,7 @@ def _llm_chat(
     criteria: Any = None,
 ) -> str:
     """Call LLM with automatic retry on transient failures."""
-    client = _get_ark_client()
-    if not client:
+    if not _llm_configured():
         return ""
 
     model = model or MODEL_NAME
@@ -132,7 +114,7 @@ def _llm_chat(
             abstract=abstract,
             criteria=criteria or {},
             messages=messages,
-            call_func=lambda: _llm_call_once(client, messages, model, max_tokens),
+            call_func=lambda: _llm_call_once(messages, model, max_tokens),
         )
         return result.text
     except Exception as e:
