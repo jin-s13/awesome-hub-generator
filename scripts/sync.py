@@ -60,7 +60,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def _get_ark_client() -> Optional[Ark]:
     """获取火山引擎 Ark 客户端"""
     api_key = os.environ.get("ARK_API_KEY", "")
-    base_url = os.environ.get("ARK_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
+    base_url = os.environ.get("ARK_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/coding/v3")
     if not api_key:
         print("[sync] 警告: 未配置 ARK_API_KEY，跳过 LLM 分类")
         return None
@@ -73,7 +73,7 @@ def llm_chat_with_usage(messages: List[Dict], model: str = "", max_tokens: int =
     if not client:
         return LLMCallResult("")
 
-    model = model or os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash-260425")
+    model = model or os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash")
 
     try:
         response = client.responses.create(
@@ -161,7 +161,7 @@ arXiv Categories: {', '.join(categories)}
 
 Return ONLY valid JSON, no other text."""
 
-    model = os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash-260425")
+    model = os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash")
     messages = [{"role": "user", "content": prompt}]
     paper_identity = paper_identity_from(
         title=title,

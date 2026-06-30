@@ -29,15 +29,15 @@ def researcher_env_values(
 ) -> Dict[str, str]:
     api_key = ark_api_key or os.environ.get("ARK_API_KEY", "")
     base_url = ark_base_url or os.environ.get(
-        "ARK_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"
+        "ARK_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/coding/v3"
     )
-    cheap_model = ark_model_name or os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash-260425")
+    cheap_model = ark_model_name or os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash")
     if smart_model_name is not None:
         smart_model = smart_model_name
     elif ark_model_name is not None:
         smart_model = cheap_model
     else:
-        smart_model = os.environ.get("SMART_MODEL_NAME", cheap_model)
+        smart_model = os.environ.get("SMART_MODEL_NAME", "deepseek-v4-pro")
     return {
         "CHEAP_LLM__API_KEY": api_key,
         "CHEAP_LLM__BASE_URL": base_url,

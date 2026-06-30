@@ -95,6 +95,14 @@ class TestGenerateEnvFile:
         )
         assert 'SMART_LLM__MODEL_NAME="cheap-model"' in content
 
+    def test_default_models_use_flash_and_pro(self, monkeypatch):
+        """Default scoring and deep-analysis models should use the current Ark choices."""
+        monkeypatch.delenv("SMART_MODEL_NAME", raising=False)
+        monkeypatch.delenv("ARK_MODEL_NAME", raising=False)
+        content = generate_env_file(ark_api_key="sk-key")
+        assert 'CHEAP_LLM__MODEL_NAME="deepseek-v4-flash"' in content
+        assert 'SMART_LLM__MODEL_NAME="deepseek-v4-pro"' in content
+
     def test_falls_back_to_env_vars(self, monkeypatch):
         """Should use env vars when no values provided."""
         monkeypatch.setenv("ARK_API_KEY", "env-key")

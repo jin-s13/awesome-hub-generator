@@ -65,10 +65,10 @@ cp .env.example .env
 
 | Secret | 说明 | 示例值 |
 |--------|------|--------|
-| `ARK_API_KEY` | 火山引擎 API Key | `sk-xxxxx` |
-| `ARK_API_BASE_URL` | API 地址（可选） | `https://ark.cn-beijing.volces.com/api/v3` |
-| `ARK_MODEL_NAME` | 评分用模型（可选） | `deepseek-v4-flash-260425` |
-| `SMART_MODEL_NAME` | 深度分析用模型（可选） | `deepseek-v4-flash-260425` |
+| `ARK_API_KEY` | 火山引擎 API Key | `ark-xxxxx` |
+| `ARK_API_BASE_URL` | API 地址（可选） | `https://ark.cn-beijing.volces.com/api/coding/v3` |
+| `ARK_MODEL_NAME` | 评分用模型（可选） | `deepseek-v4-flash` |
+| `SMART_MODEL_NAME` | 深度分析用模型（可选） | `deepseek-v4-pro` |
 
 ### 4. 全量构建（首次初始化）
 

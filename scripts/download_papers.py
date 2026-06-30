@@ -24,15 +24,16 @@ try:
 
     # 注入 API Key 到子模块的环境变量
     ark_key = os.environ.get("ARK_API_KEY", "")
-    ark_base = os.environ.get("ARK_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
-    ark_model = os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash-260425")
+    ark_base = os.environ.get("ARK_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/coding/v3")
+    ark_model = os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash")
+    smart_model = os.environ.get("SMART_MODEL_NAME", "deepseek-v4-pro")
     if ark_key:
         os.environ.setdefault("CHEAP_LLM__API_KEY", ark_key)
         os.environ.setdefault("CHEAP_LLM__BASE_URL", ark_base)
         os.environ.setdefault("CHEAP_LLM__MODEL_NAME", ark_model)
         os.environ.setdefault("SMART_LLM__API_KEY", ark_key)
         os.environ.setdefault("SMART_LLM__BASE_URL", ark_base)
-        os.environ.setdefault("SMART_LLM__MODEL_NAME", ark_model)
+        os.environ.setdefault("SMART_LLM__MODEL_NAME", smart_model)
 
     from agents.analysis_agent import AnalysisAgent
     _HAS_SUBMODULE = True

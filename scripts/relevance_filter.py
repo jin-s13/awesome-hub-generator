@@ -36,8 +36,8 @@ except ImportError:
 
 # LLM config
 API_KEY = os.environ.get("ARK_API_KEY", "")
-API_BASE_URL = os.environ.get("ARK_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
-MODEL_NAME = os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash-260425")
+API_BASE_URL = os.environ.get("ARK_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/coding/v3")
+MODEL_NAME = os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash")
 
 # Fallback keywords (only used when LLM is unavailable)
 CAD_CORE_KEYWORDS = [

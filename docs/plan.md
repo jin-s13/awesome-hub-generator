@@ -316,11 +316,11 @@ class ResearcherAdapter:
         env_path = self.researcher_dir / ".env"
         env_vars = {
             "CHEAP_LLM__API_KEY": os.environ.get("ARK_API_KEY", ""),
-            "CHEAP_LLM__BASE_URL": os.environ.get("ARK_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
-            "CHEAP_LLM__MODEL_NAME": os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash-260425"),
+            "CHEAP_LLM__BASE_URL": os.environ.get("ARK_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/coding/v3"),
+            "CHEAP_LLM__MODEL_NAME": os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash"),
             "SMART_LLM__API_KEY": os.environ.get("ARK_API_KEY", ""),
-            "SMART_LLM__BASE_URL": os.environ.get("ARK_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
-            "SMART_LLM__MODEL_NAME": os.environ.get("SMART_MODEL_NAME", "deepseek-v4-flash-260425"),
+            "SMART_LLM__BASE_URL": os.environ.get("ARK_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/coding/v3"),
+            "SMART_LLM__MODEL_NAME": os.environ.get("SMART_MODEL_NAME", "deepseek-v4-pro"),
         }
         # ... 写入 .env
     
@@ -640,10 +640,10 @@ def run_paper_discovery(config):
 
 ```bash
 # .env.example — 用户唯一需要配置的
-ARK_API_KEY=sk-your-key-here
-ARK_API_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
-ARK_MODEL_NAME=deepseek-v4-flash-260425     # 用于 CHEAP_LLM（评分）
-SMART_MODEL_NAME=deepseek-v4-flash-260425   # 用于 SMART_LLM（深度分析，可选）
+ARK_API_KEY=ark-your-key-here
+ARK_API_BASE_URL=https://ark.cn-beijing.volces.com/api/coding/v3
+ARK_MODEL_NAME=deepseek-v4-flash     # 用于 CHEAP_LLM（评分）
+SMART_MODEL_NAME=deepseek-v4-pro     # 用于 SMART_LLM（深度分析、综述归纳，可选）
 ```
 
 ### 8.2 GitHub Secrets
@@ -653,7 +653,7 @@ SMART_MODEL_NAME=deepseek-v4-flash-260425   # 用于 SMART_LLM（深度分析，
 | `ARK_API_KEY` | `CHEAP_LLM__API_KEY` + `SMART_LLM__API_KEY` | 共用同一个 Key |
 | `ARK_API_BASE_URL` | `CHEAP_LLM__BASE_URL` + `SMART_LLM__BASE_URL` | API 地址 |
 | `ARK_MODEL_NAME` | `CHEAP_LLM__MODEL_NAME` | 评分用模型 |
-| `SMART_MODEL_NAME` | `SMART_LLM__MODEL_NAME` | 深度分析用模型（默认同 ARK_MODEL_NAME） |
+| `SMART_MODEL_NAME` | `SMART_LLM__MODEL_NAME` | 深度分析用模型（默认 deepseek-v4-pro；显式传参时可跟随 ARK_MODEL_NAME） |
 
 ---
 

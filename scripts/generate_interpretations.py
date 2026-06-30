@@ -62,9 +62,9 @@ for _env_path in [SITE_DIR / ".env", ROOT / ".env"]:
 
 # LLM config
 API_KEY = os.environ.get("ARK_API_KEY", "")
-API_BASE_URL = os.environ.get("ARK_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
-MODEL_NAME = os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash-260425")
-SMART_MODEL = os.environ.get("SMART_MODEL_NAME", MODEL_NAME)
+API_BASE_URL = os.environ.get("ARK_API_BASE_URL", "https://ark.cn-beijing.volces.com/api/coding/v3")
+MODEL_NAME = os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash")
+SMART_MODEL = os.environ.get("SMART_MODEL_NAME", "deepseek-v4-pro")
 
 
 def _get_ark_client():
