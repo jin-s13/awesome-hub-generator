@@ -7,6 +7,7 @@ import pytest
 
 from scripts.update import (
     collect_sources_to_pool,
+    interpretation_refresh_step,
     load_config,
     load_papers_yaml,
     rank_papers_step,
@@ -101,6 +102,56 @@ class TestRankPapersStep:
 
         rank_papers_step({"research": {"ranking": {"enabled": False}}}, papers_yaml)
 
+        assert called is False
+
+
+class TestInterpretationRefreshStep:
+    """Test daily update backfills missing LLM paper fields."""
+
+    def test_runs_parallel_refresh_when_api_key_is_configured(self, tmp_path, monkeypatch):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "papers.yaml").write_text("[]\n", encoding="utf-8")
+        config_path = tmp_path / "awesome.yaml"
+        config_path.write_text("research:\n  keywords: [world model]\n", encoding="utf-8")
+        monkeypatch.setenv("ARK_API_KEY", "test-key")
+        monkeypatch.setenv("HUB_CONFIG_PATH", str(config_path))
+        seen = {}
+
+        def fake_run(cmd, cwd=None, env=None, check=False):
+            seen["cmd"] = cmd
+            seen["cwd"] = cwd
+            seen["env"] = env
+            seen["check"] = check
+            return MagicMock(returncode=0)
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+
+        ok = interpretation_refresh_step({"research": {}}, data_dir)
+
+        assert ok is True
+        assert "refresh_interpretations_parallel.py" in seen["cmd"][1]
+        assert seen["cmd"][-2:] == ["--config", str(config_path)]
+        assert "--data-dir" in seen["cmd"]
+        assert str(data_dir) in seen["cmd"]
+        assert seen["env"]["HUB_DATA_DIR"] == str(data_dir)
+        assert seen["check"] is False
+
+    def test_skips_parallel_refresh_without_api_key(self, tmp_path, monkeypatch):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        monkeypatch.delenv("ARK_API_KEY", raising=False)
+        called = False
+
+        def fake_run(*args, **kwargs):
+            nonlocal called
+            called = True
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+
+        ok = interpretation_refresh_step({"research": {}}, data_dir)
+
+        assert ok is False
         assert called is False
 
 

@@ -235,6 +235,18 @@ research:
     pdf_parser: "mineru"       # pymupdf（本地）或 mineru（云端）
     max_papers_per_run: 10      # 每次运行最多分析多少篇
 
+  # === LLM 解读/TLDR 补齐 ===
+  # 每日更新会用 refresh_interpretations_parallel.py 补齐缺失字段：
+  # tldr / reasoning / analysis / title_cn / abstract_cn / tldr_cn / analysis_cn。
+  # 只补缺失项，不覆盖已有字段；未配置 ARK_API_KEY 时自动跳过。
+  interpretations:
+    enabled: true
+    workers: 10                 # 并发 LLM 调用数
+    daily_limit: 0               # 0=不限；可设为 50/100 控制单次成本
+    checkpoint_interval: 5
+    force_analysis: false        # true=无视分数门槛，为所有缺 analysis 的论文生成深度分析
+    sleep: 0.0
+
   # === 深度研究队列 ===
   # 对 read_first_score 高的论文生成 research_runs.yaml 和 resource/{paper}/research.md
   deep_research:

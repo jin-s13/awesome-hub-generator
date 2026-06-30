@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
 import shutil
 import sys
 from datetime import datetime, timedelta
@@ -341,6 +342,66 @@ def rank_papers_step(config: dict, papers_yaml: Path):
     logger.info(f"PaperRank-lite enriched {updated} papers")
 
 
+# === Step 4.25: LLM interpretation backfill ===
+
+def interpretation_refresh_step(config: dict, data_dir: Path) -> bool:
+    """Backfill missing TLDR, reasoning, analysis, and Chinese fields.
+
+    The refresh runner only updates missing fields, so daily updates can safely
+    improve old records after API keys are configured without overwriting
+    existing generated or curated text.
+    """
+    settings = config.get("research", {}).get("interpretations", {}) if isinstance(config, dict) else {}
+    if isinstance(settings, dict) and settings.get("enabled", True) is False:
+        logger.info("Interpretation refresh disabled, skipping")
+        return False
+
+    if not os.environ.get("ARK_API_KEY"):
+        logger.warning("ARK_API_KEY not set, skipping interpretation refresh")
+        return False
+
+    papers_yaml = data_dir / "papers.yaml"
+    if not papers_yaml.exists():
+        logger.warning("papers.yaml not found, skipping interpretation refresh: %s", papers_yaml)
+        return False
+
+    settings = settings if isinstance(settings, dict) else {}
+    workers = max(1, int(settings.get("workers", 10)))
+    checkpoint_interval = max(1, int(settings.get("checkpoint_interval", 5)))
+    limit = int(settings.get("limit", settings.get("daily_limit", 0)) or 0)
+    sleep_seconds = float(settings.get("sleep", 0.0) or 0.0)
+    force_analysis = bool(settings.get("force_analysis", False))
+    config_path = Path(os.environ.get("HUB_CONFIG_PATH") or SITE_DIR / "awesome.yaml")
+
+    cmd = [
+        sys.executable,
+        str(ROOT / "scripts" / "refresh_interpretations_parallel.py"),
+        "--data-dir",
+        str(data_dir),
+        "--workers",
+        str(workers),
+        "--checkpoint-interval",
+        str(checkpoint_interval),
+    ]
+    if limit > 0:
+        cmd.extend(["--limit", str(limit)])
+    if force_analysis:
+        cmd.append("--force-analysis")
+    if sleep_seconds > 0:
+        cmd.extend(["--sleep", str(sleep_seconds)])
+    cmd.extend(["--config", str(config_path)])
+
+    env = os.environ.copy()
+    env["HUB_DATA_DIR"] = str(data_dir)
+    env["HUB_CONFIG_PATH"] = str(config_path)
+    logger.info("Refreshing missing interpretations (workers=%s, limit=%s)...", workers, limit or "all")
+    result = subprocess.run(cmd, cwd=str(SITE_DIR), env=env, check=False)
+    if result.returncode != 0:
+        logger.warning("Interpretation refresh exited with code %s; continuing daily update", result.returncode)
+        return False
+    return True
+
+
 # === Step 4.3: Deep research queue ===
 
 def deep_research_queue_step(config: dict, data_dir: Path):
@@ -419,6 +480,7 @@ def main():
                         help="初始化模式：全量搜索 + 批量晋升 + 种子扩展")
     parser.add_argument("--skip-build", action="store_true", help="跳过 npm build")
     parser.add_argument("--skip-teasers", action="store_true", help="跳过 teaser 图抓取")
+    parser.add_argument("--skip-interpretations", action="store_true", help="跳过 LLM 解读/TLDR 补齐")
     parser.add_argument("--skip-seed-expansion", action="store_true",
                         help="跳过种子 references 扩展")
     args = parser.parse_args()
@@ -538,6 +600,10 @@ def main():
 
         logger.info("--- Step 4.2: PaperRank-lite ---")
         rank_papers_step(config, papers_yaml)
+
+        if not args.skip_interpretations:
+            logger.info("--- Step 4.25: Interpretation refresh ---")
+            interpretation_refresh_step(config, data_dir)
 
         logger.info("--- Step 4.3: Deep research queue ---")
         deep_research_queue_step(config, data_dir)
