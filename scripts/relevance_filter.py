@@ -67,6 +67,68 @@ CAD_BROAD_KEYWORDS = [
     "roof model", "house wireframe", "building wireframe",
 ]
 
+GENERIC_RELEVANCE_TERMS = {
+    "agent",
+    "agents",
+    "ai",
+    "llm",
+    "llms",
+    "large",
+    "language",
+    "model",
+    "models",
+    "system",
+    "systems",
+    "framework",
+    "frameworks",
+    "benchmark",
+    "benchmarks",
+    "evaluation",
+    "evaluations",
+    "tool",
+    "tools",
+    "use",
+    "using",
+    "memory",
+    "rag",
+    "retrieval",
+    "knowledge",
+    "graph",
+    "graphs",
+    "coding",
+    "reasoning",
+    "training",
+    "learning",
+    "task",
+    "tasks",
+}
+
+RELEVANCE_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "by",
+    "for",
+    "from",
+    "in",
+    "into",
+    "is",
+    "of",
+    "or",
+    "that",
+    "the",
+    "their",
+    "to",
+    "via",
+    "with",
+    "without",
+}
+
+def _norm(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+
 
 # ---------------------------------------------------------------------------
 # LLM 调用
@@ -147,13 +209,20 @@ Return ONLY valid JSON, no other text."""
             messages=messages,
             call_func=lambda: _responses_call(messages, 256),
         ).text
+        if not content.strip():
+            return None
         # Extract JSON from response
         json_match = re.search(r'\{[^{}]*"relevant"[^{}]*\}', content, re.DOTALL)
         if json_match:
             result = json.loads(json_match.group(0))
             return bool(result.get("relevant", False))
-        # Fallback: check for true/false in text
-        return "true" in content.lower() and "false" not in content.lower()
+        # Fallback: check for explicit true/false in text. Ambiguous text is unknown.
+        lowered = content.lower()
+        if "true" in lowered and "false" not in lowered:
+            return True
+        if "false" in lowered and "true" not in lowered:
+            return False
+        return None
     except Exception as e:
         logger.debug("LLM relevance check failed: %s", e)
         return None
@@ -231,6 +300,135 @@ def _get_text(paper: Dict) -> str:
     return " ".join(parts).lower()
 
 
+def _phrase_in_text(phrase: str, text: str) -> bool:
+    normalized = _norm(phrase)
+    if not normalized:
+        return False
+    return re.search(r"(^|[^a-z0-9])" + re.escape(normalized) + r"([^a-z0-9]|$)", text) is not None
+
+
+def _add_unique(terms: List[str], term: str) -> None:
+    normalized = _norm(term)
+    if normalized and normalized not in terms:
+        terms.append(normalized)
+
+
+def _add_term_variants(terms: List[str], term: str) -> None:
+    _add_unique(terms, term)
+    words = _norm(term).split()
+    if len(words) == 2 and words[0] == "self" and words[1].endswith("ing"):
+        stem = words[1][:-3]
+        if stem.endswith("ov"):
+            _add_unique(terms, f"self {stem}ement")
+        elif stem.endswith("v"):
+            _add_unique(terms, f"self {stem[:-1]}ution")
+
+
+def _informative_words(text: str) -> List[str]:
+    return [
+        word
+        for word in _norm(text).split()
+        if word not in RELEVANCE_STOPWORDS and word not in GENERIC_RELEVANCE_TERMS
+    ]
+
+
+def _anchor_terms_from_text(text: str) -> List[str]:
+    terms: List[str] = []
+    normalized = _norm(text)
+    if not normalized:
+        return terms
+
+    chunks = re.split(
+        r",|;|/|\(|\)|\bor\b|\band\b|\bwithout\b|\bwith\b|\bfor\b|\bvia\b|\busing\b|\bthat\b|\bto\b",
+        normalized,
+    )
+    for chunk in chunks:
+        words = _informative_words(chunk)
+        if len(words) >= 2:
+            _add_term_variants(terms, " ".join(words))
+            for size in range(min(4, len(words)), 1, -1):
+                for idx in range(0, len(words) - size + 1):
+                    _add_term_variants(terms, " ".join(words[idx: idx + size]))
+
+    words = _informative_words(normalized)
+    for size in range(4, 1, -1):
+        for idx in range(0, len(words) - size + 1):
+            _add_term_variants(terms, " ".join(words[idx: idx + size]))
+
+    return terms
+
+
+def _strict_terms_from_criteria(relevance_criteria: Optional[Dict]) -> List[str]:
+    if not relevance_criteria:
+        return []
+
+    configured = (
+        relevance_criteria.get("required_terms")
+        or relevance_criteria.get("fallback_required_terms")
+        or relevance_criteria.get("must_match")
+        or []
+    )
+    terms: List[str] = []
+    for item in configured:
+        for term in _anchor_terms_from_text(str(item)):
+            _add_unique(terms, term)
+
+    for item in relevance_criteria.get("include", []) or []:
+        for term in _anchor_terms_from_text(str(item)):
+            _add_unique(terms, term)
+
+    return terms
+
+
+def _strict_terms_from_keywords(domain_keywords: Optional[List[str]]) -> List[str]:
+    terms: List[str] = []
+    for keyword in domain_keywords or []:
+        for term in _anchor_terms_from_text(str(keyword)):
+            _add_unique(terms, term)
+    return terms
+
+
+def _strict_relevance_fallback(
+    paper: Dict,
+    relevance_criteria: Optional[Dict],
+    domain_keywords: Optional[List[str]] = None,
+) -> bool:
+    """Conservative non-LLM relevance check for configured research scopes.
+
+    When the curator has provided relevance criteria, adjacent vocabulary such as
+    "agent", "LLM", "memory", or "tool use" is not enough. The fallback requires
+    specific scope evidence from the criteria or strong skill/evolution patterns.
+    """
+    if paper.get("relevant") is False:
+        return False
+
+    text = _norm(_get_text(paper))
+    title = _norm(paper.get("title") or "")
+    abstract = _norm(paper.get("abstract") or "")
+
+    for item in (relevance_criteria or {}).get("exclude", []) or []:
+        excluded_terms = _strict_terms_from_criteria({"include": [item]})
+        if excluded_terms and any(_phrase_in_text(term, text) for term in excluded_terms):
+            positive_terms = _strict_terms_from_criteria(relevance_criteria)
+            if not any(_phrase_in_text(term, text) for term in positive_terms):
+                return False
+
+    strict_terms = _strict_terms_from_criteria(relevance_criteria)
+    for term in strict_terms:
+        if _phrase_in_text(term, text):
+            return True
+
+    for term in _strict_terms_from_keywords(domain_keywords):
+        if _phrase_in_text(term, text):
+            return True
+
+    # Without abstracts, keep only clearly scoped academic entries.
+    if not abstract:
+        return any(_phrase_in_text(term, title) for term in [*strict_terms, *_strict_terms_from_keywords(domain_keywords)])
+
+    return False
+
+
 def is_cad_relevant(
     paper: Dict,
     negative_keywords: Optional[List[str]] = None,
@@ -260,6 +458,9 @@ def is_cad_relevant(
     title = paper.get("title") or ""
     abstract = paper.get("abstract") or ""
     text = _get_text(paper)
+
+    if paper.get("relevant") is False:
+        return False
 
     # ========== Stage 1: 关键词粗筛 ==========
 
@@ -299,8 +500,11 @@ def is_cad_relevant(
         if not is_candidate and score is not None and score >= min_score:
             is_candidate = True
 
-    # 无 abstract 的上游精选论文 → 保守保留
+    # 无 abstract 的上游精选论文 → 没有显式范围标准时保守保留；
+    # 有范围标准时必须有明确的主线证据。
     if not is_candidate and not abstract and paper.get("sources"):
+        if relevance_criteria:
+            return _strict_relevance_fallback(paper, relevance_criteria, domain_keywords)
         return True
 
     # 不是候选 → 直接排除
@@ -317,6 +521,8 @@ def is_cad_relevant(
         # llm_result is None → LLM 不可用，走 fallback
 
     # ========== Stage 3: Fallback ==========
+    if relevance_criteria:
+        return _strict_relevance_fallback(paper, relevance_criteria, domain_keywords)
     return True
 
 
