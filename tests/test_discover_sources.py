@@ -39,6 +39,15 @@ def test_github_discoverer_uses_bearer_token_and_api_version():
     assert discoverer.session.headers["X-GitHub-Api-Version"] == "2026-03-10"
 
 
+def test_github_discoverer_reads_gh_token_from_environment(monkeypatch):
+    monkeypatch.setenv("GH_TOKEN", "ghp_from_env")
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    discoverer = GitHubDiscoverer()
+
+    assert discoverer.session.headers["Authorization"] == "Bearer ghp_from_env"
+
+
 def test_search_rate_limit_waits_for_retry_after_and_retries(monkeypatch):
     sleeps = []
     monkeypatch.setattr("scripts.discover_sources.time.sleep", lambda seconds: sleeps.append(seconds))

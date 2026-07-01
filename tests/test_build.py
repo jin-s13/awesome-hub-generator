@@ -252,7 +252,8 @@ class TestAstroTemplate:
         assert "your-org/awesome-hub-generator" not in workflow
         assert "OPENALEX_API_KEY" in workflow
         assert "OPENALEX_MAILTO" in workflow
-        assert "GITHUB_TOKEN: ${{ github.token }}" in workflow
+        assert "GH_TOKEN: ${{ github.token }}" in workflow
+        assert "GITHUB_TOKEN:" not in workflow
         assert ".local/website" in workflow
         assert "python awesome-hub-generator/scripts/update.py" in workflow
         assert "Publish GitHub Pages branch" in workflow

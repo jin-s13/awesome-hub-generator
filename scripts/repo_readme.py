@@ -155,7 +155,7 @@ def render_readme(config: dict[str, Any], papers: list[dict[str, Any]], data_dir
             "Required repository secret: `ARK_API_KEY`.",
             "Optional secrets: `ARK_API_BASE_URL`, `ARK_MODEL_NAME`, `SMART_MODEL_NAME`,",
             "`MINERU_API_KEY`, `OPENALEX_API_KEY`, `OPENALEX_MAILTO`.",
-            "The workflow also passes the built-in `GITHUB_TOKEN` so upstream awesome-list",
+            "The workflow also passes the built-in GitHub token as `GH_TOKEN` so upstream awesome-list",
             "discovery does not fall back to anonymous GitHub Search limits.",
             "",
             "## Local Preview",

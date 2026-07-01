@@ -90,7 +90,7 @@ class GitHubDiscoverer:
         core_interval_seconds: float | None = None,
         max_rate_limit_sleep_seconds: float | None = None,
     ):
-        self.token = token or os.environ.get("GITHUB_TOKEN", "")
+        self.token = token or os.environ.get("GH_TOKEN", "")
         self.wait_on_rate_limit = wait_on_rate_limit
         self.api_version = api_version or os.environ.get("GITHUB_API_VERSION", "2026-03-10")
         self.search_interval_seconds = (
@@ -205,7 +205,7 @@ class GitHubDiscoverer:
     def _sleep_for_rate_limit(self, bucket: str, seconds: float, reason: str) -> bool:
         if not self.wait_on_rate_limit:
             self._exhausted_buckets.add(bucket)
-            self._warn_rate_limit(f"{reason}，停止本轮自动发现；可配置 GITHUB_TOKEN 或稍后重试。")
+            self._warn_rate_limit(f"{reason}，停止本轮自动发现；可配置 GH_TOKEN 或稍后重试。")
             return False
         if seconds > self.max_rate_limit_sleep_seconds:
             self._exhausted_buckets.add(bucket)

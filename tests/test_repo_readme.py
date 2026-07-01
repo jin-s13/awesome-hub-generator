@@ -26,7 +26,8 @@ def test_render_readme_links_web_ui_awesome_list_and_generator(tmp_path):
     assert "[Generator](https://github.com/jin-s13/awesome-hub-generator)" in readme
     assert "main:data/" in readme
     assert "gh-pages" in readme
-    assert "GITHUB_TOKEN" in readme
+    assert "GH_TOKEN" in readme
+    assert "GITHUB_TOKEN" not in readme
     assert "world models" not in readme.lower()
 
 
