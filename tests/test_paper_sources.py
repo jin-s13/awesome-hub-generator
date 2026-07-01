@@ -174,6 +174,9 @@ def test_fetch_awesome_source_uses_configured_repos_without_auto_discover(monkey
     calls = []
 
     class FakeDiscoverer:
+        def __init__(self, **kwargs):
+            pass
+
         def source_from_repo(self, repo):
             calls.append(("source_from_repo", repo))
             return SourceInfo(
@@ -217,11 +220,53 @@ def test_fetch_awesome_source_uses_configured_repos_without_auto_discover(monkey
     assert ("discover", ("world model",)) not in calls
 
 
+def test_fetch_awesome_source_passes_runtime_cache_path(monkeypatch, tmp_path):
+    from scripts.discover_sources import SourceInfo
+    from scripts.paper_sources import fetch_awesome_source
+
+    created = {}
+
+    class FakeDiscoverer:
+        def __init__(self, cache_path=None, **kwargs):
+            created["cache_path"] = cache_path
+
+        def source_from_repo(self, repo):
+            return SourceInfo(repo, f"https://github.com/{repo}", 10, "", "main")
+
+        def discover(self, keywords, min_stars=5, max_sources=10):
+            return []
+
+        def fetch_readme(self, source):
+            return "- [CAD Paper](https://arxiv.org/abs/2601.00001)"
+
+        def list_repo_files(self, source):
+            return ["README.md"]
+
+    monkeypatch.setattr("scripts.discover_sources.GitHubDiscoverer", FakeDiscoverer)
+    cache_path = tmp_path / "github-cache.json"
+
+    fetch_awesome_source(
+        {
+            "_runtime": {"github_cache_path": str(cache_path)},
+            "research": {
+                "keywords": ["CAD"],
+                "sources": {"upstream_awesome": True},
+                "upstream_awesome": {"repos": ["owner/awesome-cad"], "auto_discover": False},
+            },
+        }
+    )
+
+    assert created["cache_path"] == cache_path
+
+
 def test_fetch_awesome_source_filters_non_paper_resource_links(monkeypatch):
     from scripts.discover_sources import SourceInfo
     from scripts.paper_sources import fetch_awesome_source
 
     class FakeDiscoverer:
+        def __init__(self, **kwargs):
+            pass
+
         def source_from_repo(self, repo):
             return SourceInfo(repo, f"https://github.com/{repo}", 10, "", "main")
 

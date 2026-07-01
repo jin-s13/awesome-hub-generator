@@ -107,6 +107,7 @@ python scripts/init_site.py --name awesome-cad-hub --title "Awesome CAD Hub"
 - Repository variable: `GENERATOR_REPO=jin-s13/awesome-hub-generator`（或你的 fork）
 - Required secret: `ARK_API_KEY`
 - Optional secrets: `ARK_API_BASE_URL`, `ARK_MODEL_NAME`, `SMART_MODEL_NAME`, `MINERU_API_KEY`, `OPENALEX_API_KEY`, `OPENALEX_MAILTO`
+- `GITHUB_TOKEN` 使用 GitHub Actions 内置 token 自动注入，用于 upstream awesome 项目发现；无需手动创建 secret。
 
 workflow 默认每天 UTC 00:00 运行，即北京时间 08:00。下游仓库模式会把数据写入 `.local/data`、`.local/assets`、`.local/resource`，并从 `.local/website/dist` 部署 GitHub Pages。
 

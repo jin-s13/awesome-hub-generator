@@ -529,6 +529,7 @@ def main():
     os.environ["HUB_ASSETS_DIR"] = str(assets_dir)
     os.environ["HUB_RESOURCE_DIR"] = str(resource_dir)
     os.environ["HUB_CONFIG_PATH"] = str(config_path)
+    config.setdefault("_runtime", {})["github_cache_path"] = str(data_dir / "github_discovery_cache.json")
 
     # 初始化 candidate 池
     from scripts.candidate_pool import CandidatePool

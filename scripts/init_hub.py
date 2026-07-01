@@ -20,6 +20,72 @@ def title_from_name(name: str) -> str:
     return " ".join(word.upper() if word.lower() in {"ai", "cad"} else word.capitalize() for word in words)
 
 
+def _set_yaml_value_in_block(content: str, block_header: str, key: str, value: str) -> str:
+    lines = content.splitlines(keepends=True)
+    header_indent = None
+    in_block = False
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if stripped == block_header:
+            header_indent = indent
+            in_block = True
+            continue
+        if in_block and header_indent is not None and indent <= header_indent:
+            break
+        if in_block and stripped.startswith(f"{key}:"):
+            prefix = line[:indent]
+            newline = "\n" if line.endswith("\n") else ""
+            lines[index] = f"{prefix}{key}: {value}{newline}"
+            break
+    return "".join(lines)
+
+
+def _replace_empty_yaml_list_in_block(content: str, block_header: str, key: str, values: list[str]) -> str:
+    lines = content.splitlines(keepends=True)
+    header_indent = None
+    in_block = False
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if stripped == block_header:
+            header_indent = indent
+            in_block = True
+            continue
+        if in_block and header_indent is not None and indent <= header_indent:
+            break
+        if in_block and stripped == f"{key}: []":
+            prefix = line[:indent]
+            newline = "\n" if line.endswith("\n") else ""
+            replacement = [f"{prefix}{key}:{newline}"]
+            replacement.extend(f"{prefix}  - \"{value}\"{newline}" for value in values)
+            lines[index:index + 1] = replacement
+            break
+    return "".join(lines)
+
+
+def apply_domain_presets(content: str, name: str, title: str) -> str:
+    """Apply small source presets for known hub domains."""
+    domain = f"{name} {title}".lower()
+    if "ai4cad" not in domain and "ai for cad" not in domain:
+        return content
+    content = _set_yaml_value_in_block(content, "sources:", "upstream_awesome", "true")
+    content = _replace_empty_yaml_list_in_block(
+        content,
+        "upstream_awesome:",
+        "repos",
+        ["BunnySoCrazy/Awesome-Neural-CAD"],
+    )
+    content = _set_yaml_value_in_block(content, "upstream_awesome:", "auto_discover", "true")
+    content = _set_yaml_value_in_block(content, "auto_discover:", "enabled", "true")
+    content = _set_yaml_value_in_block(content, "auto_discover:", "max_sources", "10")
+    return content
+
+
 def render_config_template(content: str, name: str, title: str, description: str) -> str:
     rendered = content.replace("Awesome CAD Hub", title)
     rendered = rendered.replace("awesome-cad-hub", name)
@@ -30,6 +96,7 @@ def render_config_template(content: str, name: str, title: str, description: str
             rendered,
             count=1,
         )
+    rendered = apply_domain_presets(rendered, name, title)
     return rendered
 
 

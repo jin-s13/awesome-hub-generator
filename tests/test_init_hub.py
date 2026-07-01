@@ -27,6 +27,31 @@ def test_render_config_template_rewrites_project_fields():
     assert "awesome-test-hub" in rendered
 
 
+def test_render_config_template_enables_ai4cad_awesome_discovery():
+    content = (
+        'project:\n'
+        '  name: "Awesome CAD Hub"\n'
+        'research:\n'
+        '  sources:\n'
+        '    arxiv: true\n'
+        '    upstream_awesome: false\n'
+        '  upstream_awesome:\n'
+        '    repos: []\n'
+        '    auto_discover: false\n'
+        '  auto_discover:\n'
+        '    enabled: false\n'
+        '    max_sources: 3\n'
+    )
+
+    rendered = render_config_template(content, "awesome-ai4cad-hub", "Awesome AI4CAD Hub", "")
+
+    assert "    upstream_awesome: true\n" in rendered
+    assert "    auto_discover: true\n" in rendered
+    assert "      - \"BunnySoCrazy/Awesome-Neural-CAD\"\n" in rendered
+    assert "    enabled: true\n" in rendered
+    assert "    max_sources: 10\n" in rendered
+
+
 def test_init_hub_creates_workspace(tmp_path):
     template = tmp_path / "awesome.yaml.example"
     template.write_text(

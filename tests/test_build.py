@@ -9,12 +9,14 @@ from scripts.build import (
     infer_base_path,
     load_config,
     render_template,
+    generate_site,
     generate_readme_with_table,
     derive_datasets_from_benchmark_papers,
     filter_auto_discovered_entries,
     filter_irrelevant_papers,
     prune_disabled_section_data,
     rank_papers_step,
+    section_enabled,
     sync_unified_paper_sources,
     sync_options_from_config,
 )
@@ -220,6 +222,27 @@ class TestAstroTemplate:
         assert "item.name_zh" in resource_card
         assert "item.description_zh" in resource_card
 
+    def test_tools_and_resources_sections_default_off(self):
+        config = {"website": {"sections": {"papers": True, "datasets": True}}}
+
+        assert section_enabled(config, "papers") is True
+        assert section_enabled(config, "datasets") is True
+        assert section_enabled(config, "tools") is False
+        assert section_enabled(config, "resources") is False
+
+    def test_generate_site_removes_disabled_optional_pages(self, tmp_path):
+        config = {
+            "project": {"name": "Test Hub", "description": "Test", "site_url": "https://example.com/test"},
+            "website": {"sections": {"papers": True, "datasets": True, "tools": False, "resources": False}},
+        }
+
+        generate_site(config, tmp_path)
+
+        assert not (tmp_path / "src/pages/[lang]/tools.astro").exists()
+        assert not (tmp_path / "src/pages/[lang]/resources.astro").exists()
+        assert (tmp_path / "src/pages/[lang]/papers.astro").exists()
+        assert (tmp_path / "src/pages/[lang]/datasets.astro").exists()
+
     def test_daily_update_workflow_template_is_configured_for_world_model_hub(self):
         root = Path(__file__).resolve().parents[1]
         workflow = (root / "templates/workflows/daily-update.yml").read_text(encoding="utf-8")
@@ -229,6 +252,7 @@ class TestAstroTemplate:
         assert "your-org/awesome-hub-generator" not in workflow
         assert "OPENALEX_API_KEY" in workflow
         assert "OPENALEX_MAILTO" in workflow
+        assert "GITHUB_TOKEN: ${{ github.token }}" in workflow
         assert ".local/website" in workflow
         assert "python awesome-hub-generator/scripts/update.py" in workflow
         assert "Publish GitHub Pages branch" in workflow
@@ -472,6 +496,7 @@ class TestUnifiedPaperSourcesStep:
         def fake_collect(config, search_days=None, max_results=500):
             seen["search_days"] = search_days
             seen["max_results"] = max_results
+            seen["github_cache_path"] = config.get("_runtime", {}).get("github_cache_path")
             return {
                 "papers": [
                     {
@@ -504,6 +529,7 @@ class TestUnifiedPaperSourcesStep:
         assert added == 1
         assert seen["search_days"] == 30
         assert seen["max_results"] == 10
+        assert seen["github_cache_path"] == str(data_dir / "github_discovery_cache.json")
         assert seen["output_path"] == data_dir / "papers.yaml"
         assert seen["source_repo"] == "unified-sources"
         assert seen["kwargs"]["skip_llm"] is True

@@ -163,6 +163,7 @@ class TestCollectSourcesToPool:
 
         def fake_collect(config, search_days=None, max_results=500):
             seen["config"] = config
+            seen["github_cache_path"] = config.get("_runtime", {}).get("github_cache_path")
             seen["search_days"] = search_days
             return {
                 "papers": [
@@ -191,9 +192,17 @@ class TestCollectSourcesToPool:
         monkeypatch.setattr("scripts.paper_sources.collect_paper_sources", fake_collect)
 
         pool = FakePool()
-        collect_sources_to_pool({"research": {"sources": {"arxiv": True}}}, pool, search_days=14)
+        collect_sources_to_pool(
+            {
+                "_runtime": {"github_cache_path": "/tmp/github-cache.json"},
+                "research": {"sources": {"arxiv": True}},
+            },
+            pool,
+            search_days=14,
+        )
 
         assert seen["search_days"] == 14
+        assert seen["github_cache_path"] == "/tmp/github-cache.json"
         assert pool.calls == [
             (
                 [

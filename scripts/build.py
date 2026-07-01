@@ -256,9 +256,21 @@ def filter_irrelevant_papers(data_dir: Path, config: dict) -> None:
         print(f"[build] 无不相关论文需过滤 ({len(relevant)} 篇)")
 
 
+SECTION_DEFAULTS = {
+    "papers": True,
+    "surveys": True,
+    "analysis": True,
+    "trends": True,
+    "datasets": True,
+    "tools": False,
+    "resources": False,
+}
+
+
 def section_enabled(config: dict, section: str, default: bool = True) -> bool:
     """Return whether a website section is enabled in awesome.yaml."""
     sections = config.get("website", {}).get("sections", {})
+    default = SECTION_DEFAULTS.get(section, default)
     return bool(sections.get(section, default))
 
 
@@ -375,6 +387,7 @@ def sync_unified_paper_sources(
     from scripts.paper_sources import collect_paper_sources
     import sync
 
+    config.setdefault("_runtime", {})["github_cache_path"] = str(data_dir / "github_discovery_cache.json")
     result = collect_paper_sources(
         config,
         search_days=search_days,
@@ -492,6 +505,7 @@ def generate_site(config: dict, output_dir) -> None:
 
     print(f"[build] 生成网站到 {output_dir}")
     copy_template(template_dir, output_dir, variables)
+    remove_disabled_section_pages(output_dir, config)
     print("[build] 网站模板生成完成")
 
     # 确保必要的空数据文件存在（避免构建时 ENOENT）
@@ -502,6 +516,21 @@ def generate_site(config: dict, output_dir) -> None:
         if not f.exists():
             empty = "topics: []\n" if name == "surveys.yaml" else "runs: []\n" if name == "research_runs.yaml" else "[]\n"
             f.write_text(empty, encoding="utf-8")
+
+
+def remove_disabled_section_pages(output_dir: Path, config: dict) -> None:
+    """Remove route files for optional sections that are disabled."""
+    disabled_pages = {
+        "tools": ["src/pages/[lang]/tools.astro"],
+        "resources": ["src/pages/[lang]/resources.astro"],
+    }
+    for section, rel_paths in disabled_pages.items():
+        if section_enabled(config, section):
+            continue
+        for rel_path in rel_paths:
+            path = output_dir / rel_path
+            if path.exists():
+                path.unlink()
 
 
 def build_site(output_dir: Path) -> None:

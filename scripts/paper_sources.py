@@ -152,7 +152,14 @@ def fetch_awesome_source(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     if not keywords and not configured_repos:
         return []
 
-    discoverer = GitHubDiscoverer()
+    runtime = config.get("_runtime", {}) if isinstance(config.get("_runtime", {}), dict) else {}
+    cache_path = runtime.get("github_cache_path") or auto.get("cache_path")
+    discoverer = GitHubDiscoverer(
+        cache_path=Path(cache_path) if cache_path else None,
+        search_interval_seconds=auto.get("search_interval_seconds"),
+        core_interval_seconds=auto.get("core_interval_seconds"),
+        max_rate_limit_sleep_seconds=auto.get("max_rate_limit_sleep_seconds"),
+    )
     sources = [discoverer.source_from_repo(repo) for repo in configured_repos]
     if auto_enabled and keywords:
         discovered = discoverer.discover(
