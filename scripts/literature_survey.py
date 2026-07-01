@@ -98,6 +98,37 @@ def _taxonomy_topics(config: Dict[str, Any]) -> List[Dict[str, str]]:
     return topics
 
 
+def _load_taxonomy_topics(data_dir: Path) -> List[Dict[str, str]]:
+    path = data_dir / "taxonomy.yaml"
+    if not path.exists():
+        return []
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    nodes = data.get("nodes", []) if isinstance(data, dict) else []
+    topics: List[Dict[str, str]] = []
+
+    def walk(items: List[Dict[str, Any]], prefix: str = "") -> None:
+        for item in items:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            node_id = str(item["id"])
+            path_id = f"{prefix}.{node_id}" if prefix else node_id
+            topics.append(
+                {
+                    "id": node_id,
+                    "path": path_id,
+                    "label": str(item.get("label") or node_id.replace("_", " ").title()),
+                    "label_zh": str(item.get("label_zh") or ""),
+                    "description": str(item.get("description") or ""),
+                    "description_zh": str(item.get("description_zh") or ""),
+                }
+            )
+            children = item.get("children") if isinstance(item.get("children"), list) else []
+            walk(children, path_id)
+
+    walk(nodes)
+    return topics
+
+
 def _fallback_topics(papers: Iterable[Dict[str, Any]]) -> List[Dict[str, str]]:
     labels = []
     seen = set()
@@ -117,6 +148,28 @@ def _fallback_topics(papers: Iterable[Dict[str, Any]]) -> List[Dict[str, str]]:
                     }
                 )
     return labels
+
+
+def _paper_taxonomy_paths(paper: Dict[str, Any]) -> set:
+    taxonomy = paper.get("taxonomy") if isinstance(paper.get("taxonomy"), dict) else {}
+    paths = set()
+    primary = taxonomy.get("primary")
+    if primary:
+        paths.add(str(primary))
+    secondary = taxonomy.get("secondary")
+    if isinstance(secondary, list):
+        paths.update(str(item) for item in secondary if item)
+    return paths
+
+
+def _matches_topic(paper: Dict[str, Any], topic: Dict[str, str], *, taxonomy_mode: bool) -> bool:
+    if taxonomy_mode:
+        topic_id = topic.get("id", "")
+        topic_path = topic.get("path", topic_id)
+        paths = _paper_taxonomy_paths(paper)
+        return topic_path in paths or topic_id in paths
+    topic_id = topic["id"]
+    return topic_id in {_slug(paper_type) for paper_type in _paper_types(paper)}
 
 
 def _component_averages(papers: List[Dict[str, Any]]) -> Dict[str, float]:
@@ -1137,7 +1190,10 @@ def build_literature_surveys(
     if not papers:
         return 0
 
-    topics = _taxonomy_topics(config) or _fallback_topics(papers)
+    topics = _load_taxonomy_topics(data_dir)
+    taxonomy_mode = bool(topics)
+    if not topics:
+        topics = _taxonomy_topics(config) or _fallback_topics(papers)
     generated_at = generated_at or _dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
     survey_topics = []
 
@@ -1146,12 +1202,17 @@ def build_literature_surveys(
         matching = [
             paper
             for paper in papers
-            if topic_id in {_slug(paper_type) for paper_type in _paper_types(paper)}
+            if _matches_topic(paper, topic, taxonomy_mode=taxonomy_mode)
         ]
         if not matching:
             continue
         tags = _top_tags(matching)
         llm_synthesis = _llm_topic_synthesis(topic, matching, tags) if use_llm else None
+        if use_llm and not llm_synthesis:
+            raise RuntimeError(
+                "LLM topic synthesis failed for "
+                f"{topic.get('path', topic.get('id', topic.get('label', 'topic')))}"
+            )
         literature_review = (
             llm_synthesis.get("literature_review")
             if llm_synthesis and isinstance(llm_synthesis.get("literature_review"), dict)

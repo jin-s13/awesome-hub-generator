@@ -2,7 +2,7 @@
 
 import json
 
-from scripts.discover_sources import GitHubDiscoverer
+from scripts.discover_sources import GitHubDiscoverer, SourceInfo
 
 
 class FakeResponse:
@@ -191,3 +191,108 @@ def test_source_relevance_requires_cad_anchor_for_ai4cad_terms():
 
     assert not GitHubDiscoverer._source_matches_terms(GitHubDiscoverer._item_to_source(irrelevant), terms)
     assert GitHubDiscoverer._source_matches_terms(GitHubDiscoverer._item_to_source(relevant), terms)
+
+
+def test_discover_ranks_relevant_awesome_repos_above_generic_high_star_repos(monkeypatch):
+    discoverer = GitHubDiscoverer()
+
+    items = [
+        {
+            "full_name": "josephmisiti/awesome-machine-learning",
+            "html_url": "https://github.com/josephmisiti/awesome-machine-learning",
+            "stargazers_count": 73122,
+            "description": "A curated list of awesome machine learning frameworks",
+            "default_branch": "master",
+            "topics": ["awesome-list", "machine-learning"],
+        },
+        {
+            "full_name": "EvoAgentX/Awesome-Self-Evolving-Agents",
+            "html_url": "https://github.com/EvoAgentX/Awesome-Self-Evolving-Agents",
+            "stargazers_count": 2300,
+            "description": "Awesome papers for Self-Evolving AI Agents",
+            "default_branch": "main",
+            "topics": ["awesome-list", "llm-agents", "self-evolving-agents"],
+        },
+        {
+            "full_name": "EvoMap/awesome-agent-evolution",
+            "html_url": "https://github.com/EvoMap/awesome-agent-evolution",
+            "stargazers_count": 145,
+            "description": "AI Agent evolution, memory systems, multi-agent architectures, and self-improvement projects",
+            "default_branch": "main",
+            "topics": ["awesome-list", "ai-agents", "agent-evolution"],
+        },
+    ]
+
+    def fake_search(query, sort="stars", order="desc", per_page=10):
+        if query == "topic:awesome-list":
+            return items
+        return []
+
+    monkeypatch.setattr(discoverer, "_search_repos", fake_search)
+    monkeypatch.setattr("scripts.discover_sources.time.sleep", lambda _: None)
+
+    sources = discoverer.discover(
+        ["agent skill learning", "skill evolution", "self-improving agent"],
+        min_stars=5,
+        max_sources=3,
+    )
+
+    assert [source.full_name for source in sources] == [
+        "EvoAgentX/Awesome-Self-Evolving-Agents",
+        "EvoMap/awesome-agent-evolution",
+        "josephmisiti/awesome-machine-learning",
+    ]
+
+
+def test_discover_uses_query_expansion_terms_for_relevance_ranking():
+    generic = SourceInfo(
+        full_name="josephmisiti/awesome-machine-learning",
+        html_url="https://github.com/josephmisiti/awesome-machine-learning",
+        stars=73122,
+        description="A curated list of awesome machine learning frameworks",
+        default_branch="master",
+        topics=["awesome-list", "machine-learning"],
+    )
+    relevant = SourceInfo(
+        full_name="EvoMap/awesome-agent-evolution",
+        html_url="https://github.com/EvoMap/awesome-agent-evolution",
+        stars=145,
+        description="AI Agent evolution and self-improvement projects",
+        default_branch="main",
+        topics=["awesome-list", "ai-agents"],
+    )
+
+    ranked = GitHubDiscoverer.rank_sources(
+        [generic, relevant],
+        keywords=["agent skill learning"],
+        query_expansion=["agent evolution", "self-improvement"],
+    )
+
+    assert [source.full_name for source in ranked] == [
+        "EvoMap/awesome-agent-evolution",
+        "josephmisiti/awesome-machine-learning",
+    ]
+
+
+def test_discover_does_not_query_auto_derived_ranking_terms(monkeypatch):
+    discoverer = GitHubDiscoverer()
+    queries = []
+
+    def fake_search(query, sort="stars", order="desc", per_page=10):
+        queries.append(query)
+        return []
+
+    monkeypatch.setattr(discoverer, "_search_repos", fake_search)
+    monkeypatch.setattr("scripts.discover_sources.time.sleep", lambda _: None)
+
+    discoverer.discover(
+        ["agent skill learning"],
+        min_stars=5,
+        max_sources=3,
+        query_expansion=["agent evolution"],
+    )
+
+    joined = "\n".join(queries)
+    assert "agent evolution" in joined
+    assert "self evolving agents" not in joined
+    assert "llm agents" not in joined

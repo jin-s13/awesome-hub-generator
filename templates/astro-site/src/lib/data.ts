@@ -80,6 +80,12 @@ export type Paper = {
   tldr_cn?: string;
   reasoning_cn?: string;
   analysis_cn?: AnalysisInfo;
+  taxonomy?: {
+    primary?: string;
+    secondary?: string[];
+    confidence?: number;
+    evidence?: string;
+  };
 };
 
 export type Resource = {
@@ -138,6 +144,23 @@ export type SurveyIndex = {
   schema_version?: string;
   generated_at?: string;
   topics: SurveyTopic[];
+};
+
+export type TaxonomyNode = {
+  id: string;
+  label: string;
+  label_zh?: string;
+  description?: string;
+  description_zh?: string;
+  keywords?: string[];
+  children?: TaxonomyNode[];
+};
+
+export type TaxonomyIndex = {
+  schema_version?: string;
+  generated_at?: string;
+  mode?: string;
+  nodes: TaxonomyNode[];
 };
 
 function loadYaml<T>(relativePath: string): T[] {
@@ -204,6 +227,11 @@ export function getResources(): Resource[] {
 export function getSurveys(): SurveyTopic[] {
   const surveyIndex = loadYamlObject<SurveyIndex>('data/surveys.yaml', { topics: [] });
   return (surveyIndex.topics || []).sort((a, b) => b.paper_count - a.paper_count || a.label.localeCompare(b.label));
+}
+
+export function getTaxonomy(): TaxonomyNode[] {
+  const taxonomy = loadYamlObject<TaxonomyIndex>('data/taxonomy.yaml', { nodes: [] });
+  return taxonomy.nodes || [];
 }
 
 export function uniq<T>(arr: T[]): T[] {

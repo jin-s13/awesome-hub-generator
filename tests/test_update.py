@@ -12,6 +12,7 @@ from scripts.update import (
     load_papers_yaml,
     rank_papers_step,
     save_papers_yaml,
+    taxonomy_step,
 )
 
 
@@ -152,6 +153,49 @@ class TestInterpretationRefreshStep:
         ok = interpretation_refresh_step({"research": {}}, data_dir)
 
         assert ok is False
+        assert called is False
+
+
+class TestTaxonomyStep:
+    """Test taxonomy discovery and assignment wiring."""
+
+    def test_runs_taxonomy_discovery_and_assignment_by_default(self, tmp_path, monkeypatch):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "papers.yaml").write_text("[]\n", encoding="utf-8")
+        calls = []
+
+        def fake_build(path, config):
+            calls.append(("build", path, config))
+            return 2
+
+        def fake_assign(path, config):
+            calls.append(("assign", path, config))
+            return 1
+
+        monkeypatch.setattr("scripts.taxonomy_discovery.build_taxonomy", fake_build)
+        monkeypatch.setattr("scripts.taxonomy_discovery.assign_papers_to_taxonomy", fake_assign)
+
+        taxonomy_step({"research": {}}, data_dir)
+
+        assert calls == [
+            ("build", data_dir, {"research": {}}),
+            ("assign", data_dir, {"research": {}}),
+        ]
+
+    def test_skips_taxonomy_discovery_when_disabled(self, tmp_path, monkeypatch):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        called = False
+
+        def fake_build(*args, **kwargs):
+            nonlocal called
+            called = True
+
+        monkeypatch.setattr("scripts.taxonomy_discovery.build_taxonomy", fake_build)
+
+        taxonomy_step({"research": {"taxonomy_discovery": {"enabled": False}}}, data_dir)
+
         assert called is False
 
 

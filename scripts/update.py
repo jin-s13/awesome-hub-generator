@@ -404,6 +404,22 @@ def interpretation_refresh_step(config: dict, data_dir: Path) -> bool:
 
 # === Step 4.3: Deep research queue ===
 
+def taxonomy_step(config: dict, data_dir: Path):
+    """Build domain taxonomy and assign papers to taxonomy nodes."""
+    settings = config.get("research", {}).get("taxonomy_discovery", {}) if isinstance(config, dict) else {}
+    if isinstance(settings, dict) and settings.get("enabled", True) is False:
+        logger.info("Taxonomy discovery disabled, skipping")
+        return
+
+    from scripts.taxonomy_discovery import assign_papers_to_taxonomy, build_taxonomy
+
+    topics = build_taxonomy(data_dir, config)
+    assigned = assign_papers_to_taxonomy(data_dir, config)
+    logger.info(f"Taxonomy generated {topics} nodes and assigned {assigned} papers")
+
+
+# === Step 4.3: Deep research queue ===
+
 def deep_research_queue_step(config: dict, data_dir: Path):
     """Queue high read-first papers for deep research."""
     from scripts.deep_research_queue import build_deep_research_queue
@@ -518,10 +534,20 @@ def main():
     data_dir.mkdir(parents=True, exist_ok=True)
     assets_dir.mkdir(parents=True, exist_ok=True)
     resource_dir.mkdir(parents=True, exist_ok=True)
-    for empty_file in ("papers.yaml", "resources.yaml", "datasets.yaml", "tools.yaml", "surveys.yaml", "research_runs.yaml"):
+    for empty_file in ("papers.yaml", "resources.yaml", "datasets.yaml", "tools.yaml", "surveys.yaml", "research_runs.yaml", "taxonomy.yaml", "paper_taxonomy.yaml"):
         f = data_dir / empty_file
         if not f.exists():
-            empty = "topics: []\n" if empty_file == "surveys.yaml" else "runs: []\n" if empty_file == "research_runs.yaml" else "[]\n"
+            empty = (
+                "topics: []\n"
+                if empty_file == "surveys.yaml"
+                else "runs: []\n"
+                if empty_file == "research_runs.yaml"
+                else "nodes: []\n"
+                if empty_file == "taxonomy.yaml"
+                else "assignments: []\n"
+                if empty_file == "paper_taxonomy.yaml"
+                else "[]\n"
+            )
             f.write_text(empty, encoding="utf-8")
     papers_yaml = data_dir / "papers.yaml"
 
@@ -606,7 +632,10 @@ def main():
             logger.info("--- Step 4.25: Interpretation refresh ---")
             interpretation_refresh_step(config, data_dir)
 
-        logger.info("--- Step 4.3: Deep research queue ---")
+        logger.info("--- Step 4.3: Taxonomy discovery ---")
+        taxonomy_step(config, data_dir)
+
+        logger.info("--- Step 4.35: Deep research queue ---")
         deep_research_queue_step(config, data_dir)
 
         logger.info("--- Step 4.4: Literature surveys ---")

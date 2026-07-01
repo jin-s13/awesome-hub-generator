@@ -341,6 +341,20 @@ def deep_research_queue_step(data_dir: Path, resource_dir: Path, config: dict) -
     print(f"[build] Deep research queued {queued} papers")
 
 
+def taxonomy_step(data_dir: Path, config: dict) -> None:
+    """Build domain taxonomy and assign papers to taxonomy nodes."""
+    settings = config.get("research", {}).get("taxonomy_discovery", {}) if isinstance(config, dict) else {}
+    if isinstance(settings, dict) and settings.get("enabled", True) is False:
+        print("[build] Taxonomy discovery disabled, skipping")
+        return
+
+    from scripts.taxonomy_discovery import assign_papers_to_taxonomy, build_taxonomy
+
+    topics = build_taxonomy(data_dir, config)
+    assigned = assign_papers_to_taxonomy(data_dir, config)
+    print(f"[build] Taxonomy generated {topics} nodes and assigned {assigned} papers")
+
+
 def literature_surveys_step(data_dir: Path, config: dict) -> None:
     """Generate taxonomy-driven survey data."""
     from scripts.literature_survey import build_literature_surveys
@@ -511,10 +525,20 @@ def generate_site(config: dict, output_dir) -> None:
     # 确保必要的空数据文件存在（避免构建时 ENOENT）
     data_dir = output_dir / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("papers.yaml", "resources.yaml", "datasets.yaml", "tools.yaml", "surveys.yaml", "research_runs.yaml"):
+    for name in ("papers.yaml", "resources.yaml", "datasets.yaml", "tools.yaml", "surveys.yaml", "research_runs.yaml", "taxonomy.yaml", "paper_taxonomy.yaml"):
         f = data_dir / name
         if not f.exists():
-            empty = "topics: []\n" if name == "surveys.yaml" else "runs: []\n" if name == "research_runs.yaml" else "[]\n"
+            empty = (
+                "topics: []\n"
+                if name == "surveys.yaml"
+                else "runs: []\n"
+                if name == "research_runs.yaml"
+                else "nodes: []\n"
+                if name == "taxonomy.yaml"
+                else "assignments: []\n"
+                if name == "paper_taxonomy.yaml"
+                else "[]\n"
+            )
             f.write_text(empty, encoding="utf-8")
 
 
@@ -853,13 +877,25 @@ def main():
     papers_yaml = root_data_dir / "papers.yaml"
 
     # Ensure data files exist
-    for empty_file in ["papers.yaml", "datasets.yaml", "tools.yaml", "resources.yaml", "surveys.yaml", "research_runs.yaml"]:
+    for empty_file in ["papers.yaml", "datasets.yaml", "tools.yaml", "resources.yaml", "surveys.yaml", "research_runs.yaml", "taxonomy.yaml", "paper_taxonomy.yaml"]:
         ef = root_data_dir / empty_file
         if not ef.exists():
-            empty = "topics: []\n" if empty_file == "surveys.yaml" else "runs: []\n" if empty_file == "research_runs.yaml" else "[]\n"
+            empty = (
+                "topics: []\n"
+                if empty_file == "surveys.yaml"
+                else "runs: []\n"
+                if empty_file == "research_runs.yaml"
+                else "nodes: []\n"
+                if empty_file == "taxonomy.yaml"
+                else "assignments: []\n"
+                if empty_file == "paper_taxonomy.yaml"
+                else "[]\n"
+            )
             ef.write_text(empty, encoding="utf-8")
 
     if args.render_only:
+        taxonomy_step(data_dir, config)
+        literature_surveys_step(data_dir, config)
         generate_site(config, output_dir)
         copy_runtime_assets(output_dir, data_dir)
         if config_path.exists():
@@ -945,7 +981,8 @@ def main():
     # Step 4.5: PaperRank-lite read-first scoring
     rank_papers_step(data_dir, config)
 
-    # Step 4.6: Deep research queue and literature survey data
+    # Step 4.6: Taxonomy, deep research queue and literature survey data
+    taxonomy_step(data_dir, config)
     deep_research_queue_step(data_dir, resource_dir, config)
     literature_surveys_step(data_dir, config)
 

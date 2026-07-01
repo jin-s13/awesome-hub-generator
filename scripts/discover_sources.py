@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import json
+import math
 import re
 import time
 import sys
@@ -332,12 +333,128 @@ class GitHubDiscoverer:
                 return True
         return False
 
+    @staticmethod
+    def _normalize_text(value: str) -> str:
+        return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+
+    @classmethod
+    def _source_text(cls, source: SourceInfo) -> str:
+        parts = [
+            source.full_name.replace("/", " "),
+            source.full_name.replace("-", " "),
+            source.description,
+            " ".join(source.topics),
+            " ".join(topic.replace("-", " ") for topic in source.topics),
+        ]
+        return cls._normalize_text(" ".join(parts))
+
+    @classmethod
+    def _expanded_terms(cls, keywords: List[str], query_expansion: Optional[List[str]] = None) -> List[str]:
+        """Build GitHub-repo-oriented relevance terms from research keywords."""
+        terms: List[str] = []
+        for item in [*keywords, *(query_expansion or [])]:
+            text = cls._normalize_text(str(item))
+            if text and text not in terms:
+                terms.append(text)
+
+        joined = " ".join(terms)
+        derived: List[str] = []
+        if "agent" in joined:
+            derived.extend(["ai agent", "ai agents", "llm agent", "llm agents", "autonomous agent"])
+        if "evolution" in joined or "evolve" in joined or "evolving" in joined:
+            derived.extend(["agent evolution", "self evolving agent", "self evolving agents", "self improvement"])
+        if "skill" in joined:
+            derived.extend(["agent skill", "agent skills", "skill library", "skill discovery"])
+        if "tool" in joined:
+            derived.extend(["tool learning", "tool use", "tool making"])
+
+        for item in derived:
+            text = cls._normalize_text(item)
+            if text and text not in terms:
+                terms.append(text)
+        return terms
+
+    @classmethod
+    def _search_terms(cls, keywords: List[str], query_expansion: Optional[List[str]] = None) -> List[str]:
+        """Terms used for GitHub API calls.
+
+        Keep this list close to user/config-provided terms. Automatically
+        derived terms are useful for ranking, but querying all of them makes
+        GitHub Search slow and much more likely to hit rate limits.
+        """
+        terms: List[str] = []
+        for item in [*keywords, *(query_expansion or [])]:
+            text = cls._normalize_text(str(item))
+            if text and text not in terms:
+                terms.append(text)
+        return terms
+
+    @classmethod
+    def relevance_score(
+        cls,
+        source: SourceInfo,
+        keywords: List[str],
+        query_expansion: Optional[List[str]] = None,
+    ) -> float:
+        text = cls._source_text(source)
+        if not text:
+            return 0.0
+
+        topical_score = 0.0
+        for term in cls._expanded_terms(keywords, query_expansion):
+            if not term:
+                continue
+            if term in text:
+                topical_score += 10.0 + min(len(term.split()), 4)
+                continue
+            words = [word for word in term.split() if len(word) > 2 and word not in {"awesome", "list"}]
+            if not words:
+                continue
+            matches = sum(1 for word in words if word in text)
+            if matches:
+                topical_score += matches / len(words)
+
+        if topical_score <= 0:
+            return 0.0
+
+        score = topical_score
+        name_text = cls._normalize_text(source.full_name.replace("/", " "))
+        if "awesome" in name_text:
+            score += 1.0
+        if "agent" in name_text and ("evolution" in name_text or "evolving" in name_text):
+            score += 8.0
+        if "skill" in name_text and "agent" in text:
+            score += 4.0
+        return score
+
+    @classmethod
+    def rank_sources(
+        cls,
+        sources: List[SourceInfo],
+        keywords: List[str],
+        query_expansion: Optional[List[str]] = None,
+    ) -> List[SourceInfo]:
+        """Rank by topical relevance first, stars second.
+
+        Large generic awesome lists should not outrank smaller repositories whose
+        name, description, or topics directly match the research area.
+        """
+        return sorted(
+            sources,
+            key=lambda source: (
+                cls.relevance_score(source, keywords, query_expansion),
+                math.log10(max(source.stars, 0) + 1),
+            ),
+            reverse=True,
+        )
+
     # ------------------------------------------------------------------
     # 公开方法
     # ------------------------------------------------------------------
 
     def discover(self, keywords: List[str], min_stars: int = 5,
-                 max_sources: int = 10) -> List[SourceInfo]:
+                 max_sources: int = 10,
+                 query_expansion: Optional[List[str]] = None) -> List[SourceInfo]:
         """
         自动发现 GitHub 上的 awesome 项目。
 
@@ -345,11 +462,15 @@ class GitHubDiscoverer:
         """
         seen: set = set()
         candidates: List[SourceInfo] = []
-        terms = self._keyword_terms(keywords)
+        search_terms = self._search_terms(keywords, query_expansion)
 
         def finish() -> List[SourceInfo]:
-            filtered = [s for s in candidates if s.stars >= min_stars and self._source_matches_terms(s, terms)]
-            filtered.sort(key=lambda s: s.stars, reverse=True)
+            filtered = [
+                s
+                for s in candidates
+                if s.stars >= min_stars and (not search_terms or self.relevance_score(s, keywords, query_expansion) > 0)
+            ]
+            filtered = self.rank_sources(filtered, keywords, query_expansion)
             result = filtered[:max_sources]
             print(f"[discover] 候选 {len(candidates)} 个，过滤后 {len(filtered)} 个，取 Top {len(result)}")
             for s in result:
@@ -358,9 +479,7 @@ class GitHubDiscoverer:
 
         # 策略 1: 按 topic 搜索
         print("[discover] 策略 1: 按 topic 搜索...")
-        for kw in keywords:
-            if "search" in self._exhausted_buckets:
-                return finish()
+        for kw in search_terms:
             items = self._search_repos(f"topic:awesome topic:{kw}")
             for item in items:
                 name = item["full_name"]
@@ -373,7 +492,7 @@ class GitHubDiscoverer:
 
         # 策略 2: 按 README 内容搜索
         print("[discover] 策略 2: 按 README 内容搜索...")
-        top_kw = keywords[:3]
+        top_kw = search_terms[:3]
         kw_query = " ".join(f'"{kw}"' for kw in top_kw)
         items = self._search_repos(f'"awesome" "{kw_query}" in:readme')
         for item in items:
@@ -386,9 +505,7 @@ class GitHubDiscoverer:
 
         # 策略 3: 按仓库名搜索
         print("[discover] 策略 3: 按仓库名搜索...")
-        for kw in keywords:
-            if "search" in self._exhausted_buckets:
-                return finish()
+        for kw in search_terms:
             items = self._search_repos(f"awesome-{kw} in:name")
             for item in items:
                 name = item["full_name"]
@@ -401,9 +518,7 @@ class GitHubDiscoverer:
 
         # 策略 4: 按 GitHub Trending 搜索
         print("[discover] 策略 4: 按 GitHub Trending 搜索...")
-        for kw in keywords:
-            if "search" in self._exhausted_buckets:
-                return finish()
+        for kw in search_terms:
             items = self._search_repos(f"awesome {kw} stars:>100")
             for item in items:
                 name = item["full_name"]
@@ -419,12 +534,12 @@ class GitHubDiscoverer:
         items = self._search_repos("topic:awesome-list")
         for item in items:
             name = item["full_name"]
-            # 只保留描述中包含关键词的
-            desc = (item.get("description", "") or "").lower()
-            if any(kw.lower() in desc for kw in keywords):
+            source = self._item_to_source(item)
+            # awesome-list 召回量大，用 name/description/topics 的相关性过滤。
+            if self.relevance_score(source, keywords, query_expansion) > 0:
                 if name not in seen:
                     seen.add(name)
-                    candidates.append(self._item_to_source(item))
+                    candidates.append(source)
 
         return finish()
 
@@ -501,9 +616,17 @@ def main():
         auto = config.get("research", {}).get("auto_discover", {})
         args.min_stars = auto.get("min_stars", args.min_stars)
         args.max_sources = auto.get("max_sources", args.max_sources)
+        args.query_expansion = auto.get("query_expansion", [])
+    else:
+        args.query_expansion = []
 
     discoverer = GitHubDiscoverer()
-    sources = discoverer.discover(args.keywords, args.min_stars, args.max_sources)
+    sources = discoverer.discover(
+        args.keywords,
+        args.min_stars,
+        args.max_sources,
+        query_expansion=args.query_expansion,
+    )
 
     if not sources:
         print("[discover] 未发现任何 awesome 项目")

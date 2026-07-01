@@ -166,6 +166,7 @@ def fetch_awesome_source(config: Dict[str, Any]) -> List[Dict[str, Any]]:
             keywords,
             min_stars=auto.get("min_stars", 5),
             max_sources=auto.get("max_sources", 10),
+            query_expansion=auto.get("query_expansion", []),
         )
         seen = {source.full_name for source in sources}
         sources.extend(source for source in discovered if source.full_name not in seen)

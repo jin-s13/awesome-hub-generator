@@ -47,6 +47,18 @@ research:
       - name: "outputs"
         description: "output types (e.g., 3D model, code, classification)"
 
+  # === 领域分类树自动发现 ===
+  # 面向任意主题生成 data/taxonomy.yaml，并把每篇论文映射到分类树节点。
+  taxonomy_discovery:
+    enabled: true
+    update_mode: "propose"          # propose / auto / locked
+    max_depth: 3
+    max_children_per_node: 8
+    # 可选：人工锁定的高层节点。为空时会回退到 taxonomy.paper_types。
+    nodes: []
+    # 可选：从高质量上游 awesome/survey 的标题中抽取的分类 seed。
+    source_headings: []
+
   # === 相关性判断标准（LLM 语义过滤用） ===
   # LLM 根据这些标准判断论文是否与本项目相关
   relevance_criteria:
@@ -171,6 +183,9 @@ research:
     enabled: true
     min_stars: 5
     max_sources: 10
+    # 可选：GitHub repo 搜索/排序扩展词。适合加入更像仓库名/README 的领域短语，
+    # 例如 "agent evolution"、"self-evolving agents"。
+    query_expansion: []
 
   # === 种子论文自动发现 ===
   # 展示池中的论文自动作为种子，通过 Semantic Scholar API 获取其 references
