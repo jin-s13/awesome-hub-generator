@@ -257,6 +257,8 @@ class TestAstroTemplate:
         assert "GITHUB_TOKEN:" not in workflow
         assert ".local/website" in workflow
         assert "python awesome-hub-generator/scripts/update.py" in workflow
+        assert "run_seed_expansion" in workflow
+        assert "--skip-seed-expansion" in workflow
         assert "Publish GitHub Pages branch" in workflow
         assert "git switch --orphan gh-pages" in workflow
         assert "git push -f origin gh-pages" in workflow

@@ -488,7 +488,14 @@ def literature_surveys_step(config: dict, data_dir: Path):
     """Generate taxonomy-driven survey data."""
     from scripts.literature_survey import build_literature_surveys
 
-    topics = build_literature_surveys(data_dir, config)
+    use_llm = bool(os.environ.get("ARK_API_KEY"))
+    if not use_llm:
+        logger.info("ARK_API_KEY not set, using rule-based literature surveys")
+    try:
+        topics = build_literature_surveys(data_dir, config, use_llm=use_llm)
+    except RuntimeError as exc:
+        logger.warning("Literature survey LLM synthesis failed, falling back: %s", exc)
+        topics = build_literature_surveys(data_dir, config, use_llm=False)
     logger.info(f"Literature surveys generated {topics} topics")
 
 

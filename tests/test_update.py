@@ -8,6 +8,7 @@ import pytest
 from scripts.update import (
     collect_sources_to_pool,
     interpretation_refresh_step,
+    literature_surveys_step,
     load_config,
     load_papers_yaml,
     rank_papers_step,
@@ -274,6 +275,29 @@ class TestSeedReferenceFiltering:
             {"title": "CAD-Coder: Text-to-CAD Generation with Geometric Reward", "abstract": "Generates CAD programs."},
             ["AI for CAD", "B-Rep", "parametric design"],
         ) is True
+
+
+class TestLiteratureSurveyUpdateStep:
+    """Test update-time literature survey fallback behavior."""
+
+    def test_falls_back_to_rule_based_when_llm_synthesis_fails(self, tmp_path, monkeypatch):
+        calls = []
+
+        def fake_build_literature_surveys(data_dir, config, use_llm=True):
+            calls.append(use_llm)
+            if use_llm:
+                raise RuntimeError("LLM topic synthesis failed for method")
+            return 2
+
+        monkeypatch.setenv("ARK_API_KEY", "set")
+        monkeypatch.setattr(
+            "scripts.literature_survey.build_literature_surveys",
+            fake_build_literature_surveys,
+        )
+
+        literature_surveys_step({"research": {}}, tmp_path)
+
+        assert calls == [True, False]
 
 
 class TestMainLogic:
