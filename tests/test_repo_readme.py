@@ -27,6 +27,10 @@ def test_render_readme_links_web_ui_awesome_list_and_generator(tmp_path):
     assert "main:data/" in readme
     assert "gh-pages" in readme
     assert "GH_TOKEN" in readme
+    assert "GH_DISCOVERY_TOKEN" in readme
+    assert "SEMANTIC_SCHOLAR_API_KEY" in readme
+    assert "ARK_SURVEY_TIMEOUT_SECONDS" in readme
+    assert "SEMANTIC_SCHOLAR_REQUEST_INTERVAL_SECONDS" in readme
     assert "GITHUB_TOKEN" not in readme
     assert "world models" not in readme.lower()
 

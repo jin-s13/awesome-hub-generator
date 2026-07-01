@@ -870,10 +870,10 @@ def _normalize_outline_items(items: Any, prefixes: List[str], *, limit: int = 5)
 
 def _llm_topic_synthesis(topic: Dict[str, str], papers: List[Dict[str, Any]], tags: List[str]) -> Optional[Dict[str, Any]]:
     try:
-        from scripts.generate_interpretations import SMART_MODEL, _llm_chat
+        from scripts.generate_interpretations import SMART_MODEL, SURVEY_LLM_TIMEOUT_SECONDS, _llm_chat
     except ImportError:
         try:
-            from generate_interpretations import SMART_MODEL, _llm_chat  # type: ignore
+            from generate_interpretations import SMART_MODEL, SURVEY_LLM_TIMEOUT_SECONDS, _llm_chat  # type: ignore
         except ImportError:
             return None
 
@@ -892,6 +892,7 @@ def _llm_topic_synthesis(topic: Dict[str, str], papers: List[Dict[str, Any]], ta
             "paper_ids": [paper.get("id", "") for paper in packet["top_papers"]],
             "top_tags": tags[:10],
         },
+        timeout=SURVEY_LLM_TIMEOUT_SECONDS,
     )
     result = _extract_json_object(raw)
     if not result:

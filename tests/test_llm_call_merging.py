@@ -123,6 +123,31 @@ def test_combined_chinese_generation_uses_one_llm_call(monkeypatch):
     assert result["analysis_cn"]["limitations"] == ["数据有限"]
 
 
+def test_llm_call_once_passes_configured_timeout(monkeypatch):
+    from scripts import generate_interpretations as gi
+    from scripts.llm_cache import LLMCallResult
+
+    seen = {}
+
+    def fake_call_openai_responses(**kwargs):
+        seen.update(kwargs)
+        return LLMCallResult.from_text("ok")
+
+    monkeypatch.setattr(gi, "API_KEY", "test-key")
+    monkeypatch.setattr(gi, "call_openai_responses", fake_call_openai_responses)
+
+    result = gi._llm_call_once(
+        [{"role": "user", "content": "Hi"}],
+        "test-model",
+        128,
+        timeout=240,
+    )
+
+    assert result.text == "ok"
+    assert seen["timeout"] == 240
+    assert seen["model"] == "test-model"
+
+
 def test_paper_needs_chinese_fields_when_only_tldr_or_analysis_is_missing():
     from scripts import generate_interpretations as gi
 

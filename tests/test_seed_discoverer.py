@@ -63,3 +63,20 @@ def test_fetch_references_parses_arxiv_reference(monkeypatch):
             "links": {"paper": "https://arxiv.org/abs/2601.00001"},
         }
     ]
+
+
+def test_fetch_references_uses_semantic_scholar_api_key(monkeypatch):
+    calls = []
+    monkeypatch.setenv("SEMANTIC_SCHOLAR_API_KEY", "s2-secret")
+
+    def fake_get(*args, **kwargs):
+        calls.append((args, kwargs))
+        return _Response(200, {"data": []})
+
+    monkeypatch.setattr(seed_discoverer.requests, "get", fake_get)
+
+    refs = seed_discoverer.fetch_references("2502.10498", max_refs=10)
+
+    assert refs == []
+    assert calls[0][1]["headers"]["x-api-key"] == "s2-secret"
+    assert calls[0][1]["headers"]["User-Agent"] == "awesome-hub-generator/1.0"

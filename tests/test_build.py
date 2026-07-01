@@ -7,7 +7,6 @@ import pytest
 
 from scripts.build import (
     infer_base_path,
-    literature_surveys_step,
     load_config,
     render_template,
     generate_site,
@@ -253,7 +252,11 @@ class TestAstroTemplate:
         assert "your-org/awesome-hub-generator" not in workflow
         assert "OPENALEX_API_KEY" in workflow
         assert "OPENALEX_MAILTO" in workflow
-        assert "GH_TOKEN: ${{ github.token }}" in workflow
+        assert "SEMANTIC_SCHOLAR_API_KEY" in workflow
+        assert "ARK_SURVEY_TIMEOUT_SECONDS" in workflow
+        assert "SEMANTIC_SCHOLAR_REQUEST_INTERVAL_SECONDS" in workflow
+        assert "GH_DISCOVERY_TOKEN" in workflow
+        assert "GH_TOKEN: ${{ secrets.GH_DISCOVERY_TOKEN || github.token }}" in workflow
         assert "GITHUB_TOKEN:" not in workflow
         assert ".local/website" in workflow
         assert "python awesome-hub-generator/scripts/update.py" in workflow
@@ -263,23 +266,6 @@ class TestAstroTemplate:
         assert "actions/deploy-pages@v4" not in workflow
         assert "actions/upload-pages-artifact@v3" not in workflow
         assert "github.event_name != 'push'" in workflow
-
-    def test_literature_surveys_step_uses_rule_based_without_ark_key(self, tmp_path, monkeypatch):
-        calls = []
-
-        def fake_build_literature_surveys(data_dir, config, use_llm=True):
-            calls.append(use_llm)
-            return 2
-
-        monkeypatch.delenv("ARK_API_KEY", raising=False)
-        monkeypatch.setattr(
-            "scripts.literature_survey.build_literature_surveys",
-            fake_build_literature_surveys,
-        )
-
-        literature_surveys_step(tmp_path, {"research": {}})
-
-        assert calls == [False]
 
     def test_trends_page_normalizes_tags_and_infers_missing_years(self):
         root = Path(__file__).resolve().parents[1]

@@ -5,6 +5,7 @@
 """
 import json
 import logging
+import os
 import re
 import time
 from typing import Any, Dict, List, Optional
@@ -15,7 +16,37 @@ logger = logging.getLogger(__name__)
 
 # Semantic Scholar API
 _S2_BASE = "https://api.semanticscholar.org/graph/v1"
-_S2_RATE_LIMIT = 1.0  # 秒/请求，免费版约 100 req / 5min
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning("%s must be a number, using %.2f", name, default)
+        return default
+    if value < 0:
+        logger.warning("%s must be non-negative, using %.2f", name, default)
+        return default
+    return value
+
+
+def _semantic_scholar_api_key() -> str:
+    return os.environ.get("SEMANTIC_SCHOLAR_API_KEY") or os.environ.get("S2_API_KEY") or ""
+
+
+def _s2_headers() -> Dict[str, str]:
+    headers = {"User-Agent": "awesome-hub-generator/1.0"}
+    api_key = _semantic_scholar_api_key()
+    if api_key:
+        headers["x-api-key"] = api_key
+    return headers
+
+
+def _rate_limit_interval() -> float:
+    return _env_float("SEMANTIC_SCHOLAR_REQUEST_INTERVAL_SECONDS", _env_float("S2_RATE_LIMIT_SECONDS", 1.0))
 
 
 def _extract_arxiv_id(paper: Dict) -> Optional[str]:
@@ -57,13 +88,24 @@ def fetch_references(
 
     for attempt in range(3):
         try:
-            resp = requests.get(url, params=params, timeout=timeout)
+            resp = requests.get(url, params=params, timeout=timeout, headers=_s2_headers())
             if resp.status_code == 404:
                 logger.debug(f"S2: paper {arxiv_id} not found")
                 return []
             if resp.status_code == 429:
                 wait = 5 * (attempt + 1)
-                logger.warning(f"S2 rate limited, waiting {wait}s...")
+                if _semantic_scholar_api_key():
+                    logger.warning(
+                        "S2 rate limited even with SEMANTIC_SCHOLAR_API_KEY, waiting %ss; "
+                        "increase SEMANTIC_SCHOLAR_REQUEST_INTERVAL_SECONDS or reduce seed expansion volume.",
+                        wait,
+                    )
+                else:
+                    logger.warning(
+                        "S2 rate limited without SEMANTIC_SCHOLAR_API_KEY, waiting %ss; "
+                        "configure the repository secret to get authenticated limits.",
+                        wait,
+                    )
                 time.sleep(wait)
                 continue
             resp.raise_for_status()
@@ -181,7 +223,7 @@ def discover_from_seeds(
         logger.info(f"  {aid}: +{added} new candidates")
 
         # 速率限制
-        time.sleep(_S2_RATE_LIMIT)
+        time.sleep(_rate_limit_interval())
 
     logger.info(f"Seed discovery: +{total_added} new candidates from {len(to_expand)} seeds")
     return total_added

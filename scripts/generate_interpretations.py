@@ -63,6 +63,28 @@ MODEL_NAME = os.environ.get("ARK_MODEL_NAME", "deepseek-v4-flash")
 SMART_MODEL = os.environ.get("SMART_MODEL_NAME", "deepseek-v4-pro")
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("%s must be an integer, using %s", name, default)
+        return default
+    if value <= 0:
+        logger.warning("%s must be positive, using %s", name, default)
+        return default
+    return value
+
+
+LLM_TIMEOUT_SECONDS = _env_int("ARK_TIMEOUT_SECONDS", 60)
+SURVEY_LLM_TIMEOUT_SECONDS = _env_int(
+    "ARK_SURVEY_TIMEOUT_SECONDS",
+    LLM_TIMEOUT_SECONDS if LLM_TIMEOUT_SECONDS > 60 else 180,
+)
+
+
 def _llm_configured() -> bool:
     """Return whether model calls are configured."""
     if not API_KEY:
@@ -76,7 +98,12 @@ def _llm_configured() -> bool:
     wait=wait_exponential(multiplier=1, min=2, max=10),
     reraise=True,
 )
-def _llm_call_once(messages: List[Dict], model: str, max_tokens: int) -> LLMCallResult:
+def _llm_call_once(
+    messages: List[Dict],
+    model: str,
+    max_tokens: int,
+    timeout: int = LLM_TIMEOUT_SECONDS,
+) -> LLMCallResult:
     """Single LLM call attempt (retried by tenacity on transient failures)."""
     return call_openai_responses(
         api_key=API_KEY,
@@ -85,6 +112,7 @@ def _llm_call_once(messages: List[Dict], model: str, max_tokens: int) -> LLMCall
         messages=messages,
         temperature=0.1,
         max_tokens=max_tokens,
+        timeout=timeout,
     )
 
 
@@ -98,12 +126,14 @@ def _llm_chat(
     paper_identity: str = "",
     abstract: str = "",
     criteria: Any = None,
+    timeout: Optional[int] = None,
 ) -> str:
     """Call LLM with automatic retry on transient failures."""
     if not _llm_configured():
         return ""
 
     model = model or MODEL_NAME
+    request_timeout = timeout or LLM_TIMEOUT_SECONDS
 
     try:
         result = get_default_cache().get_or_call_llm(
@@ -114,7 +144,7 @@ def _llm_chat(
             abstract=abstract,
             criteria=criteria or {},
             messages=messages,
-            call_func=lambda: _llm_call_once(messages, model, max_tokens),
+            call_func=lambda: _llm_call_once(messages, model, max_tokens, request_timeout),
         )
         return result.text
     except Exception as e:
