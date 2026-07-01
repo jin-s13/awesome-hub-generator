@@ -91,7 +91,7 @@ class GitHubDiscoverer:
         core_interval_seconds: float | None = None,
         max_rate_limit_sleep_seconds: float | None = None,
     ):
-        self.token = token or os.environ.get("GH_TOKEN", "")
+        self.token = token or os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
         self.wait_on_rate_limit = wait_on_rate_limit
         self.api_version = api_version or os.environ.get("GITHUB_API_VERSION", "2026-03-10")
         self.search_interval_seconds = (

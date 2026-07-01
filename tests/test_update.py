@@ -12,6 +12,7 @@ from scripts.update import (
     load_papers_yaml,
     rank_papers_step,
     save_papers_yaml,
+    seed_ref_has_domain_anchor,
     taxonomy_step,
 )
 
@@ -259,6 +260,20 @@ class TestCollectSourcesToPool:
                 "unified-sources",
             )
         ]
+
+
+class TestSeedReferenceFiltering:
+    """Test stricter filtering for noisy Semantic Scholar references."""
+
+    def test_requires_cad_anchor_for_seed_references(self):
+        assert seed_ref_has_domain_anchor(
+            {"title": "Low-rank adaptation of large language models", "abstract": "Adapts LLMs efficiently."},
+            ["AI for CAD", "B-Rep", "parametric design"],
+        ) is False
+        assert seed_ref_has_domain_anchor(
+            {"title": "CAD-Coder: Text-to-CAD Generation with Geometric Reward", "abstract": "Generates CAD programs."},
+            ["AI for CAD", "B-Rep", "parametric design"],
+        ) is True
 
 
 class TestMainLogic:

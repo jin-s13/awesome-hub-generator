@@ -83,6 +83,7 @@ def apply_domain_presets(content: str, name: str, title: str) -> str:
     content = _set_yaml_value_in_block(content, "upstream_awesome:", "auto_discover", "true")
     content = _set_yaml_value_in_block(content, "auto_discover:", "enabled", "true")
     content = _set_yaml_value_in_block(content, "auto_discover:", "max_sources", "10")
+    content = _set_yaml_value_in_block(content, "candidate_pool:", "promote_batch_size", "300")
     return content
 
 

@@ -48,6 +48,15 @@ def test_github_discoverer_reads_gh_token_from_environment(monkeypatch):
     assert discoverer.session.headers["Authorization"] == "Bearer ghp_from_env"
 
 
+def test_github_discoverer_falls_back_to_github_token_environment(monkeypatch):
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.setenv("GITHUB_TOKEN", "github_token_from_env")
+
+    discoverer = GitHubDiscoverer()
+
+    assert discoverer.session.headers["Authorization"] == "Bearer github_token_from_env"
+
+
 def test_search_rate_limit_waits_for_retry_after_and_retries(monkeypatch):
     sleeps = []
     monkeypatch.setattr("scripts.discover_sources.time.sleep", lambda seconds: sleeps.append(seconds))

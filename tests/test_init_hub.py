@@ -41,6 +41,8 @@ def test_render_config_template_enables_ai4cad_awesome_discovery():
         '  auto_discover:\n'
         '    enabled: false\n'
         '    max_sources: 3\n'
+        '  candidate_pool:\n'
+        '    promote_batch_size: 20\n'
     )
 
     rendered = render_config_template(content, "awesome-ai4cad-hub", "Awesome AI4CAD Hub", "")
@@ -50,6 +52,7 @@ def test_render_config_template_enables_ai4cad_awesome_discovery():
     assert "      - \"BunnySoCrazy/Awesome-Neural-CAD\"\n" in rendered
     assert "    enabled: true\n" in rendered
     assert "    max_sources: 10\n" in rendered
+    assert "    promote_batch_size: 300\n" in rendered
 
 
 def test_init_hub_creates_workspace(tmp_path):

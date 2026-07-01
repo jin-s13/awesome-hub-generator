@@ -155,6 +155,52 @@ def collect_sources_to_pool(config: dict, pool, search_days: int):
 
 # === Step 2: Candidate → 展示池晋升 ===
 
+SEED_REF_ANCHOR_TERMS = {
+    "cad",
+    "computer-aided design",
+    "computer aided design",
+    "b-rep",
+    "brep",
+    "boundary representation",
+    "csg",
+    "constructive solid geometry",
+    "parametric",
+    "sketch",
+    "extrusion",
+    "extrude",
+    "step",
+    "solid model",
+    "geometric modeling",
+    "engineering drawing",
+    "manufacturing",
+    "machining",
+    "cadquery",
+    "ifc",
+}
+
+
+def seed_ref_has_domain_anchor(candidate: dict, domain_keywords: List[str] | None = None) -> bool:
+    """Require explicit AI4CAD/CAD anchors for noisy reference expansion papers."""
+    import re
+
+    parts = [
+        candidate.get("title") or "",
+        candidate.get("abstract") or "",
+        " ".join(candidate.get("tags") or []),
+    ]
+    text = " ".join(parts).lower()
+    anchors = set(SEED_REF_ANCHOR_TERMS)
+    for keyword in domain_keywords or []:
+        lowered = str(keyword).strip().lower()
+        if lowered in {"ai", "ml", "deep learning", "machine learning", "point cloud", "mesh", "3d"}:
+            continue
+        if lowered:
+            anchors.add(lowered)
+    for anchor in anchors:
+        if re.search(r"(^|[^a-z0-9])" + re.escape(anchor) + r"([^a-z0-9]|$)", text):
+            return True
+    return False
+
 def promote_candidates(config: dict, pool, papers_yaml: Path) -> int:
     """Step 2: 从 candidate 池中筛选相关论文，晋升到展示池。
 
@@ -169,6 +215,8 @@ def promote_candidates(config: dict, pool, papers_yaml: Path) -> int:
     relevance_criteria = research.get("relevance_criteria", {})
     taxonomy = research.get("taxonomy", {})
     batch_size = research.get("candidate_pool", {}).get("promote_batch_size", 20)
+    negative_keywords = research.get("negative_keywords", [])
+    domain_keywords = research.get("keywords", []) + research.get("domain_boost_keywords", [])
 
     # 获取未检查的候选论文
     unchecked = pool.get_unchecked(limit=batch_size * 2)
@@ -205,13 +253,18 @@ def promote_candidates(config: dict, pool, papers_yaml: Path) -> int:
             pool.mark_promoted(aid)
             continue
 
+        if candidate.get("source") == "seed_ref" and not seed_ref_has_domain_anchor(candidate, domain_keywords):
+            pool.mark_relevance(aid, relevant=False)
+            continue
+
         # LLM 相关性判断
         relevant = is_cad_relevant(
             candidate,
-            negative_keywords=None,
+            negative_keywords=negative_keywords,
             min_score=0.0,
             research_context=research_context,
             relevance_criteria=relevance_criteria,
+            domain_keywords=domain_keywords,
         )
         pool.mark_relevance(aid, relevant=relevant)
 
