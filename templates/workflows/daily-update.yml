@@ -39,11 +39,6 @@ on:
         required: false
         default: false
         type: boolean
-      run_seed_expansion:
-        description: '运行 Semantic Scholar references 扩展（较慢，易限流）'
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: write
@@ -119,11 +114,7 @@ jobs:
           if [ -n "${{ github.event.inputs.search_days }}" ]; then
             SEARCH_DAYS_ARGS="--search-days ${{ github.event.inputs.search_days }}"
           fi
-          SEED_EXPANSION_ARGS="--skip-seed-expansion"
-          if [ "${{ github.event.inputs.run_seed_expansion }}" = "true" ]; then
-            SEED_EXPANSION_ARGS=""
-          fi
-          python awesome-hub-generator/scripts/update.py $SEARCH_DAYS_ARGS $SEED_EXPANSION_ARGS --skip-build
+          python awesome-hub-generator/scripts/update.py $SEARCH_DAYS_ARGS --skip-build
 
       - name: Refresh repository README
         if: github.event_name != 'push' && github.event.inputs.skip_update != 'true'
