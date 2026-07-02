@@ -19,6 +19,7 @@ logger = logging.getLogger("dataset_sources")
 HF_DATASETS_URL = "https://huggingface.co/api/datasets"
 USER_AGENT = "awesome-hub-generator/1.0"
 REQUEST_TIMEOUT = 30
+UNNAMED_DATASET = "Unnamed Dataset"
 
 
 def _section_enabled(config: dict, section: str, default: bool = True) -> bool:
@@ -171,13 +172,17 @@ def fetch_hf_datasets(config: dict) -> List[dict]:
 def _dataset_name_from_paper(title: str) -> str:
     title = (title or "").strip()
     if not title:
-        return "Unnamed Dataset"
+        return UNNAMED_DATASET
     for sep in (":", "：", " -- ", " - "):
         if sep in title:
             head = title.split(sep, 1)[0].strip()
             if 2 <= len(head) <= 80:
                 return head
     return title[:120]
+
+
+def _is_placeholder_dataset_name(value: Any) -> bool:
+    return str(value or "").strip() == UNNAMED_DATASET
 
 
 def _paper_types(paper: dict) -> List[str]:
@@ -239,7 +244,7 @@ def derive_datasets_from_papers(papers: Iterable[dict]) -> List[dict]:
                 }
             ],
         }
-        if name_zh:
+        if name_zh and not _is_placeholder_dataset_name(name_zh):
             item["name_zh"] = name_zh
         if description_zh:
             item["description_zh"] = description_zh
@@ -309,6 +314,8 @@ def associate_datasets_with_papers(datasets: List[dict], papers: List[dict]) -> 
         if not isinstance(dataset, dict):
             continue
         item = dict(dataset)
+        if _is_placeholder_dataset_name(item.get("name_zh")):
+            item.pop("name_zh", None)
         links = dict(item.get("links") or {})
         related = list(item.get("related_papers") or [])
         related_keys = {entry.get("id") or entry.get("url") for entry in related if isinstance(entry, dict)}
@@ -350,7 +357,9 @@ def associate_datasets_with_papers(datasets: List[dict], papers: List[dict]) -> 
             if paper_preview and (not current_preview or current_preview.endswith("placeholder.svg")):
                 item["preview"] = paper_preview
             if paper.get("title_cn") and not item.get("name_zh"):
-                item["name_zh"] = _dataset_name_from_paper(paper["title_cn"])
+                name_zh = _dataset_name_from_paper(paper["title_cn"])
+                if not _is_placeholder_dataset_name(name_zh):
+                    item["name_zh"] = name_zh
             if paper.get("tldr_cn") and not item.get("description_zh"):
                 item["description_zh"] = paper["tldr_cn"]
             elif paper.get("abstract_cn") and not item.get("description_zh"):

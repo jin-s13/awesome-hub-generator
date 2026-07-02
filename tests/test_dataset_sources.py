@@ -145,6 +145,49 @@ def test_sync_datasets_derives_benchmark_and_dataset_mention_papers(tmp_path):
     assert datasets[0]["description_zh"] == "WorldBench 提供用于评测世界模型的数据集与基准任务。"
     assert datasets[0]["notes_zh"] == "派生自论文：WorldBench：世界模型评测基准"
     assert datasets[0]["related_papers"][0]["title_zh"] == "WorldBench：世界模型评测基准"
+    assert "name_zh" not in datasets[1]
+
+
+def test_sync_datasets_removes_placeholder_localized_dataset_name(tmp_path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "papers.yaml").write_text(
+        """
+- id: bench-1
+  title: "WorldBench: A Benchmark for World Models"
+  abstract: "We introduce a benchmark for world model evaluation."
+  year: 2026
+  paper_type: [benchmark]
+  links:
+    paper: https://arxiv.org/abs/2601.00001
+""",
+        encoding="utf-8",
+    )
+    (data_dir / "datasets.yaml").write_text(
+        """
+- id: paper-bench-1
+  name: WorldBench
+  name_zh: Unnamed Dataset
+  links:
+    paper: https://arxiv.org/abs/2601.00001
+  sources:
+    - repo: papers
+      category: dataset
+""",
+        encoding="utf-8",
+    )
+
+    sync_datasets(
+        data_dir,
+        {
+            "research": {"datasets": {"huggingface": False}},
+            "website": {"sections": {"datasets": True}},
+        },
+    )
+
+    datasets = yaml.safe_load((data_dir / "datasets.yaml").read_text(encoding="utf-8")) or []
+    assert datasets[0]["name"] == "WorldBench"
+    assert "name_zh" not in datasets[0]
 
 
 def test_associate_datasets_with_papers_adds_related_papers():
