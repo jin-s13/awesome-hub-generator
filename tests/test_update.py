@@ -7,9 +7,11 @@ import pytest
 
 from scripts.update import (
     collect_sources_to_pool,
+    fetch_teasers_step,
     interpretation_refresh_step,
     load_config,
     load_papers_yaml,
+    promote_candidates,
     rank_papers_step,
     save_papers_yaml,
     seed_ref_has_domain_anchor,
@@ -157,6 +159,28 @@ class TestInterpretationRefreshStep:
         assert called is False
 
 
+class TestFetchTeasersStep:
+    """Test daily update teaser step wiring."""
+
+    def test_passes_teaser_config(self, monkeypatch, tmp_path):
+        seen = {}
+
+        def fake_fetch_teasers(retry_fallbacks=True, workers=1):
+            seen["retry_fallbacks"] = retry_fallbacks
+            seen["workers"] = workers
+
+        import fetch_teasers
+
+        monkeypatch.setattr(fetch_teasers, "main", fake_fetch_teasers)
+
+        fetch_teasers_step(
+            {"research": {"teasers": {"workers": 7, "retry_fallbacks": False}}},
+            tmp_path,
+        )
+
+        assert seen == {"retry_fallbacks": False, "workers": 7}
+
+
 class TestTaxonomyStep:
     """Test taxonomy discovery and assignment wiring."""
 
@@ -295,6 +319,53 @@ class TestCollectSourcesToPool:
 
         assert "awesome-cad" in (data_dir / "projects.yaml").read_text(encoding="utf-8")
         assert "1000" in (data_dir / "projects.yaml").read_text(encoding="utf-8")
+
+
+class TestPromoteCandidates:
+    """Test candidate promotion safeguards."""
+
+    def test_dedupes_same_batch_non_arxiv_title(self, tmp_path, monkeypatch):
+        papers_yaml = tmp_path / "papers.yaml"
+        papers_yaml.write_text("[]\n", encoding="utf-8")
+
+        class FakePool:
+            def __init__(self):
+                self.relevance = []
+                self.promoted = []
+
+            def get_unchecked(self, limit):
+                return [
+                    {
+                        "title": "Planning with an Ensemble of World Models",
+                        "abstract": "A world model planning paper.",
+                        "year": 2026,
+                        "links": {"paper": "https://openreview.net/forum?id=cvGdPXaydP"},
+                    },
+                    {
+                        "title": "Planning with an Ensemble of World Models",
+                        "abstract": "Duplicate candidate.",
+                        "year": 2026,
+                        "links": {"paper": "https://openreview.net/forum?id=cvGdPXaydP"},
+                    },
+                ]
+
+            def mark_relevance(self, aid, relevant):
+                self.relevance.append((aid, relevant))
+
+            def mark_promoted(self, aid):
+                self.promoted.append(aid)
+
+        monkeypatch.setattr("scripts.relevance_filter.is_cad_relevant", lambda *args, **kwargs: True)
+
+        added = promote_candidates(
+            {"research": {"candidate_pool": {"promote_batch_size": 10}}},
+            FakePool(),
+            papers_yaml,
+        )
+
+        papers = load_papers_yaml(papers_yaml)
+        assert added == 1
+        assert len(papers) == 1
 
 
 class TestSeedReferenceFiltering:
