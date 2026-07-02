@@ -136,7 +136,7 @@ def _pdf_candidates_from_landing_page(url: str) -> List[str]:
 
     # CVF openaccess uses /html/<paper>.html for landing pages and /papers/<paper>.pdf for PDFs.
     if "openaccess.thecvf.com/content/" in url and "/html/" in url and url.endswith(".html"):
-        candidates.append(url.replace("/html/", "/papers/").removesuffix(".html") + ".pdf")
+        candidates.append(url.replace("/html/", "/papers/")[:-5] + ".pdf")
 
     # NeurIPS abstract pages can be converted from:
     # .../hash/<hash>-Abstract-Conference.html
