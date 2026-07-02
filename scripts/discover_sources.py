@@ -65,6 +65,7 @@ GENERIC_DISCOVERY_TERMS = {
     "awesome",
 }
 CAD_ANCHOR_TERMS = {"cad", "brep", "b-rep", "csg", "nurbs", "cae", "cam", "parametric", "sketch", "extrusion"}
+DEFAULT_MAX_SEARCH_TERMS = 2
 
 
 @dataclass
@@ -90,6 +91,7 @@ class GitHubDiscoverer:
         search_interval_seconds: float | None = None,
         core_interval_seconds: float | None = None,
         max_rate_limit_sleep_seconds: float | None = None,
+        request_timeout_seconds: float | None = None,
     ):
         self.token = token or os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
         self.wait_on_rate_limit = wait_on_rate_limit
@@ -105,9 +107,14 @@ class GitHubDiscoverer:
             else float(core_interval_seconds)
         )
         self.max_rate_limit_sleep_seconds = (
-            float(os.environ.get("GITHUB_RATE_LIMIT_MAX_SLEEP_SECONDS", "600"))
+            float(os.environ.get("GITHUB_RATE_LIMIT_MAX_SLEEP_SECONDS", "30"))
             if max_rate_limit_sleep_seconds is None
             else float(max_rate_limit_sleep_seconds)
+        )
+        self.request_timeout_seconds = (
+            float(os.environ.get("GITHUB_REQUEST_TIMEOUT_SECONDS", "10"))
+            if request_timeout_seconds is None
+            else float(request_timeout_seconds)
         )
         self.cache_path = Path(cache_path) if cache_path else None
         self.cache: Dict[str, Dict[str, Any]] = self._load_cache()
@@ -253,7 +260,7 @@ class GitHubDiscoverer:
             if not self._check_rate_limit(bucket):
                 return ""
             self._throttle(bucket)
-            resp = self.session.get(url, params=params, timeout=30, headers=headers)
+            resp = self.session.get(url, params=params, timeout=self.request_timeout_seconds, headers=headers)
             self._mark_requested(bucket)
             self._update_rate_limit_state(resp.headers, bucket)
 
@@ -454,7 +461,8 @@ class GitHubDiscoverer:
 
     def discover(self, keywords: List[str], min_stars: int = 5,
                  max_sources: int = 10,
-                 query_expansion: Optional[List[str]] = None) -> List[SourceInfo]:
+                 query_expansion: Optional[List[str]] = None,
+                 max_search_terms: Optional[int] = DEFAULT_MAX_SEARCH_TERMS) -> List[SourceInfo]:
         """
         自动发现 GitHub 上的 awesome 项目。
 
@@ -463,6 +471,13 @@ class GitHubDiscoverer:
         seen: set = set()
         candidates: List[SourceInfo] = []
         search_terms = self._search_terms(keywords, query_expansion)
+        if max_search_terms is not None:
+            try:
+                limit = int(max_search_terms)
+            except (TypeError, ValueError):
+                limit = DEFAULT_MAX_SEARCH_TERMS
+            if limit > 0:
+                search_terms = search_terms[:limit]
 
         def finish() -> List[SourceInfo]:
             filtered = [
@@ -566,7 +581,8 @@ class GitHubDiscoverer:
 
     def fetch_readme(self, source: SourceInfo) -> Optional[str]:
         """获取上游项目的 README.md 内容"""
-        for branch in (source.default_branch, "main", "master"):
+        branches = list(dict.fromkeys([source.default_branch, "main", "master"]))
+        for branch in branches:
             url = f"https://raw.githubusercontent.com/{source.full_name}/{branch}/README.md"
             text = self._get_text(url, bucket="core")
             if text:

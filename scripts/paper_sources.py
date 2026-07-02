@@ -245,6 +245,7 @@ def fetch_awesome_bundle(config: Dict[str, Any]) -> Dict[str, Any]:
         search_interval_seconds=auto.get("search_interval_seconds"),
         core_interval_seconds=auto.get("core_interval_seconds"),
         max_rate_limit_sleep_seconds=auto.get("max_rate_limit_sleep_seconds"),
+        request_timeout_seconds=auto.get("request_timeout_seconds"),
     )
     sources = [discoverer.source_from_repo(repo) for repo in configured_repos]
     if auto_enabled and keywords:
@@ -253,10 +254,19 @@ def fetch_awesome_bundle(config: Dict[str, Any]) -> Dict[str, Any]:
             min_stars=auto.get("min_stars", 5),
             max_sources=auto.get("max_sources", 10),
             query_expansion=auto.get("query_expansion", []),
+            max_search_terms=auto.get("max_search_terms", 2),
         )
         seen = {source.full_name for source in sources}
         sources.extend(source for source in discovered if source.full_name not in seen)
     projects = [github_source_to_project(source) for source in sources]
+    max_repos_to_fetch = auto.get("max_repos_to_fetch")
+    if max_repos_to_fetch is not None:
+        try:
+            repo_limit = int(max_repos_to_fetch)
+        except (TypeError, ValueError):
+            repo_limit = 0
+        if repo_limit > 0:
+            sources = sources[:repo_limit]
     papers: List[Dict[str, Any]] = []
     for source in sources:
         readme = discoverer.fetch_readme(source)

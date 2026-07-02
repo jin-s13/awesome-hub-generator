@@ -78,6 +78,11 @@ research:
       - "3D scene understanding / scene graph / indoor-outdoor reconstruction"
       - "Spatial intelligence / foundation models for 3D without CAD-specific contribution"
 
+  # === LLM 调用调度 ===
+  llm:
+    workers: 4                  # 分类/相关性过滤并发；过大可能触发服务限流
+    survey_workers: 2           # 综述生成使用长上下文模型，默认并发略低
+
   # === 负向关键词（命中直接排除） ===
   negative_keywords:
     # 医学
@@ -148,6 +153,10 @@ research:
   # === 全量构建的起始日期 ===
   date_from: "2020-01-01"
 
+  # === Hugging Face Daily 初次抓取窗口 ===
+  # HF Daily 是逐日 API，请避免初次构建按 date_from 拉取多年历史。
+  huggingface_daily_max_days: 7
+
   # === 每日搜索的天数范围 ===
   daily_search_days: 3
 
@@ -163,6 +172,7 @@ research:
   # === 数据集发现 ===
   datasets:
     huggingface: true
+    huggingface_max_keywords: 5
     huggingface_limit_per_keyword: 20
     derive_from_papers: true
 
@@ -183,6 +193,10 @@ research:
     enabled: true
     min_stars: 5
     max_sources: 10
+    max_search_terms: 2
+    max_repos_to_fetch: 5
+    request_timeout_seconds: 10
+    max_rate_limit_sleep_seconds: 30
     # 可选：GitHub repo 搜索/排序扩展词。适合加入更像仓库名/README 的领域短语，
     # 例如 "agent evolution"、"self-evolving agents"。
     query_expansion: []
@@ -263,6 +277,11 @@ research:
     checkpoint_interval: 5
     force_analysis: false        # true=无视分数门槛，为所有缺 analysis 的论文生成深度分析
     sleep: 0.0
+
+  # === Teaser 图抓取配置 ===
+  teasers:
+    workers: 4                   # 并发抓取 teaser 图；网络较稳时可调到 8-10
+    retry_fallbacks: true         # 是否重试已生成的 teaser.svg fallback，尽量替换成真实图
 
   # === 深度研究队列 ===
   # 对 read_first_score 高的论文生成 research_runs.yaml 和 resource/{paper}/research.md

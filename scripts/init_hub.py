@@ -68,6 +68,47 @@ def _replace_empty_yaml_list_in_block(content: str, block_header: str, key: str,
     return "".join(lines)
 
 
+def _replace_yaml_list_in_block(content: str, block_header: str, key: str, values: list[str]) -> str:
+    lines = content.splitlines(keepends=True)
+    header_indent = None
+    in_block = False
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if stripped == block_header:
+            header_indent = indent
+            in_block = True
+            continue
+        if in_block and header_indent is not None and indent <= header_indent:
+            break
+        if in_block and stripped.startswith(f"{key}:"):
+            prefix = line[:indent]
+            newline = "\n" if line.endswith("\n") else ""
+            if values:
+                replacement = [f"{prefix}{key}:{newline}"]
+                replacement.extend(f"{prefix}  - \"{value}\"{newline}" for value in values)
+            else:
+                replacement = [f"{prefix}{key}: []{newline}"]
+            end = index + 1
+            while end < len(lines):
+                next_line = lines[end]
+                next_stripped = next_line.strip()
+                next_indent = len(next_line) - len(next_line.lstrip())
+                if next_stripped and not next_stripped.startswith("#") and next_indent <= indent:
+                    break
+                end += 1
+            lines[index:end] = replacement
+            break
+    return "".join(lines)
+
+
+def _is_cad_domain(name: str, title: str) -> bool:
+    domain = f"{name} {title}".lower()
+    return "cad" in domain or "ai4cad" in domain or "ai for cad" in domain
+
+
 def apply_domain_presets(content: str, name: str, title: str) -> str:
     """Apply small source presets for known hub domains."""
     domain = f"{name} {title}".lower()
@@ -87,6 +128,15 @@ def apply_domain_presets(content: str, name: str, title: str) -> str:
     return content
 
 
+def apply_generic_safety_defaults(content: str, name: str, title: str) -> str:
+    """Remove CAD-specific expansion defaults when creating a non-CAD hub."""
+    if _is_cad_domain(name, title):
+        return content
+    content = _set_yaml_value_in_block(content, "seed_discovery:", "enabled", "false")
+    content = _replace_yaml_list_in_block(content, "seed_discovery:", "initial_seed_arxiv_ids", [])
+    return content
+
+
 def render_config_template(content: str, name: str, title: str, description: str) -> str:
     rendered = content.replace("Awesome CAD Hub", title)
     rendered = rendered.replace("awesome-cad-hub", name)
@@ -97,6 +147,7 @@ def render_config_template(content: str, name: str, title: str, description: str
             rendered,
             count=1,
         )
+    rendered = apply_generic_safety_defaults(rendered, name, title)
     rendered = apply_domain_presets(rendered, name, title)
     return rendered
 

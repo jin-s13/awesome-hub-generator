@@ -62,6 +62,30 @@ def test_fetch_hf_datasets_maps_search_results(monkeypatch):
     ]
 
 
+def test_fetch_hf_datasets_limits_keyword_requests(monkeypatch):
+    calls = []
+
+    def fake_get_json(url):
+        calls.append(url)
+        return []
+
+    monkeypatch.setattr("scripts.dataset_sources._http_get_json", fake_get_json)
+
+    fetch_hf_datasets(
+        {
+            "research": {
+                "keywords": ["world model", "AI scientist", "benchmark"],
+                "datasets": {"huggingface_max_keywords": 2},
+            },
+            "website": {"sections": {"datasets": True}},
+        }
+    )
+
+    assert len(calls) == 2
+    assert "search=world+model" in calls[0]
+    assert "search=AI+scientist" in calls[1]
+
+
 def test_sync_datasets_derives_benchmark_and_dataset_mention_papers(tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()

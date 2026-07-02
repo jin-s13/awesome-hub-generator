@@ -55,6 +55,25 @@ def test_render_config_template_enables_ai4cad_awesome_discovery():
     assert "    promote_batch_size: 300\n" in rendered
 
 
+def test_render_config_template_disables_cad_seed_discovery_for_generic_hub():
+    content = (
+        'project:\n'
+        '  name: "Awesome CAD Hub"\n'
+        'research:\n'
+        '  seed_discovery:\n'
+        '    enabled: true\n'
+        '    initial_seed_arxiv_ids:\n'
+        '      - "2104.01268"\n'
+        '      - "2305.16303"\n'
+    )
+
+    rendered = render_config_template(content, "awesome-auto-research-hub", "Awesome Auto Research Hub", "")
+
+    assert "    enabled: false\n" in rendered
+    assert "    initial_seed_arxiv_ids: []\n" in rendered
+    assert "2104.01268" not in rendered
+
+
 def test_init_hub_creates_workspace(tmp_path):
     template = tmp_path / "awesome.yaml.example"
     template.write_text(

@@ -36,6 +36,7 @@ HF_DAILY_PAPERS_URL = "https://huggingface.co/api/daily_papers"
 HF_TRENDING_URL = "https://huggingface.co/api/daily_papers?sort=trending&limit=50"
 USER_AGENT = "awesome-hub-generator/1.0"
 REQUEST_TIMEOUT = 30
+DEFAULT_DAILY_MAX_DAYS = 7
 
 
 # ---------------------------------------------------------------------------
@@ -265,7 +266,8 @@ def fetch_all_hf_papers(config: dict) -> List[Dict]:
     Returns:
         合并去重后的论文列表
     """
-    sources = config.get("research", {}).get("sources", {})
+    research = config.get("research", {})
+    sources = research.get("sources", {})
 
     daily_enabled = sources.get("huggingface_daily", False)
     trending_enabled = sources.get("huggingface_trending", False)
@@ -278,12 +280,16 @@ def fetch_all_hf_papers(config: dict) -> List[Dict]:
     trending_papers: List[Dict] = []
 
     if daily_enabled:
-        date_from = config.get("research", {}).get("date_from")
+        date_from = research.get("date_from")
         if date_from:
             today = datetime.now()
             start = datetime.strptime(date_from, "%Y-%m-%d")
-            # 限制 HF Daily 最多抓取 90 天，避免逐天请求过多
-            max_days = 90
+            # HF Daily 是逐日请求。初次构建只取近期窗口，避免旧日期全量抓取拖住构建。
+            try:
+                max_days = int(research.get("huggingface_daily_max_days", DEFAULT_DAILY_MAX_DAYS))
+            except (TypeError, ValueError):
+                max_days = DEFAULT_DAILY_MAX_DAYS
+            max_days = max(1, max_days)
             if (today - start).days > max_days:
                 start = today - timedelta(days=max_days)
                 logger.warning(

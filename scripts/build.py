@@ -216,7 +216,7 @@ def filter_auto_discovered_entries(entries: list[dict], config: dict) -> list[di
     return filtered
 
 
-def filter_irrelevant_papers(data_dir: Path, config: dict) -> None:
+def filter_irrelevant_papers(data_dir: Path, config: dict, *, use_llm: bool = True) -> None:
     """过滤与研究方向不相关的论文"""
     import yaml
     from relevance_filter import filter_papers
@@ -236,12 +236,16 @@ def filter_irrelevant_papers(data_dir: Path, config: dict) -> None:
     project_desc = config.get("project", {}).get("description", "")
     research_context = project_desc or " ".join(domain_keywords[:5])
     relevance_criteria = research.get("relevance_criteria", {})
+    llm_config = research.get("llm", {}) if isinstance(research.get("llm", {}), dict) else {}
+    llm_workers = int(llm_config.get("workers", 4))
 
     relevant, removed = filter_papers(
         papers, negative, min_score,
         research_context=research_context,
         relevance_criteria=relevance_criteria,
         domain_keywords=domain_keywords,
+        use_llm=use_llm,
+        llm_workers=llm_workers,
     )
 
     if removed:
@@ -359,8 +363,8 @@ def literature_surveys_step(data_dir: Path, config: dict) -> None:
     """Generate taxonomy-driven survey data."""
     from scripts.literature_survey import build_literature_surveys
 
-    topics = build_literature_surveys(data_dir, config)
-    print(f"[build] Literature surveys generated {topics} topics")
+    topics = build_literature_surveys(data_dir, config, use_llm=False, enqueue_llm=True)
+    print(f"[build] Literature surveys generated {topics} topics; LLM survey jobs queued")
 
 
 def sync_options_from_config(config: dict) -> dict:
@@ -373,6 +377,9 @@ def sync_options_from_config(config: dict) -> dict:
         "research_context": research_context,
         "taxonomy": research.get("taxonomy", {}),
         "relevance_criteria": research.get("relevance_criteria", {}),
+        "llm_workers": int((research.get("llm", {}) or {}).get("workers", 4))
+        if isinstance(research.get("llm", {}), dict)
+        else 4,
     }
 
 
@@ -937,7 +944,7 @@ def main():
 
     # Step 2.6: 过滤与 CAD 不相关的论文
     if not args.skip_search:
-        filter_irrelevant_papers(data_dir, config)
+        filter_irrelevant_papers(data_dir, config, use_llm=not args.skip_llm)
 
     # Step 2.7: 应用人工 overrides
     overrides_config = research.get("overrides", {})
@@ -953,8 +960,11 @@ def main():
     if not args.skip_teasers:
         try:
             from fetch_teasers import main as fetch_teasers
+            teaser_config = research.get("teasers", {}) or {}
+            teaser_workers = int(teaser_config.get("workers", 1))
+            retry_fallbacks = bool(teaser_config.get("retry_fallbacks", True))
             print("[build] 获取论文 teaser 图...")
-            fetch_teasers()
+            fetch_teasers(retry_fallbacks=retry_fallbacks, workers=teaser_workers)
         except Exception as e:
             print(f"[build] Teaser 获取失败（非致命）: {e}")
 

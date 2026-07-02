@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("relevance_filter")
@@ -436,6 +437,7 @@ def is_cad_relevant(
     research_context: str = "",
     relevance_criteria: Optional[Dict] = None,
     domain_keywords: Optional[List[str]] = None,
+    use_llm: bool = True,
 ) -> bool:
     """判断论文是否与研究方向相关。
 
@@ -461,6 +463,8 @@ def is_cad_relevant(
 
     if paper.get("relevant") is False:
         return False
+    if paper.get("relevant") is True:
+        return True
 
     # ========== Stage 1: 关键词粗筛 ==========
 
@@ -512,7 +516,7 @@ def is_cad_relevant(
         return False
 
     # ========== Stage 2: LLM 精筛 ==========
-    if title and abstract and research_context:
+    if use_llm and title and abstract and research_context:
         llm_result = _llm_check_relevance(title, abstract, research_context, relevance_criteria)
         if llm_result is True:
             return True
@@ -533,6 +537,8 @@ def filter_papers(
     research_context: str = "",
     relevance_criteria: Optional[Dict] = None,
     domain_keywords: Optional[List[str]] = None,
+    use_llm: bool = True,
+    llm_workers: int = 1,
 ) -> Tuple[List[Dict], List[Dict]]:
     """过滤论文列表。
 
@@ -547,10 +553,41 @@ def filter_papers(
     Returns:
         (relevant_papers, removed_papers)
     """
+    def check_one(index: int, paper: Dict) -> Tuple[int, Dict, bool]:
+        return index, paper, is_cad_relevant(
+            paper,
+            negative_keywords,
+            min_score,
+            research_context,
+            relevance_criteria,
+            domain_keywords,
+            use_llm=use_llm,
+        )
+
+    workers = max(1, int(llm_workers or 1))
+    results: List[Tuple[int, Dict, bool]] = []
+    if not use_llm or len(papers) <= 1 or workers <= 1:
+        for index, paper in enumerate(papers):
+            results.append(check_one(index, paper))
+    else:
+        logger.info("LLM relevance filtering %d papers with %d workers", len(papers), workers)
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(check_one, index, paper): (index, paper) for index, paper in enumerate(papers)}
+            completed = 0
+            for future in as_completed(futures):
+                index, paper = futures[future]
+                try:
+                    results.append(future.result())
+                except Exception as exc:
+                    logger.warning("LLM relevance failed for %s: %s", (paper.get("title") or "")[:80], exc)
+                    results.append((index, paper, False))
+                completed += 1
+                logger.info("LLM relevance progress: %d/%d", completed, len(papers))
+
     relevant = []
     removed = []
-    for paper in papers:
-        if is_cad_relevant(paper, negative_keywords, min_score, research_context, relevance_criteria, domain_keywords):
+    for _index, paper, is_relevant in sorted(results, key=lambda item: item[0]):
+        if is_relevant:
             relevant.append(paper)
         else:
             removed.append(paper)

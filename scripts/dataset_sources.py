@@ -139,6 +139,9 @@ def fetch_hf_datasets(config: dict) -> List[dict]:
         return []
 
     limit = int(dataset_config.get("huggingface_limit_per_keyword", 20))
+    max_keywords = int(dataset_config.get("huggingface_max_keywords", 5))
+    if max_keywords > 0:
+        keywords = keywords[:max_keywords]
     fetched: List[dict] = []
     for keyword in keywords:
         params = urllib.parse.urlencode(

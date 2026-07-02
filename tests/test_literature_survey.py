@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from scripts.literature_survey import build_literature_surveys
+from scripts.literature_survey import build_literature_surveys, process_survey_jobs
 
 
 def test_build_literature_surveys_groups_taxonomy_and_score_components(tmp_path: Path):
@@ -127,6 +127,112 @@ def test_build_literature_surveys_groups_taxonomy_and_score_components(tmp_path:
     assert "相比视频 token 基线提升了轨迹预测效果" in surveys["topics"][0]["related_work_outline_zh"][1]
     assert surveys["topics"][1]["top_tags"] == ["benchmark", "dataset"]
     assert surveys["topics"][1]["label_zh"] == "基准"
+
+
+def test_build_literature_surveys_can_enqueue_llm_jobs_without_calling_llm(tmp_path: Path, monkeypatch):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    data_dir.joinpath("papers.yaml").write_text(
+        yaml.dump(
+            [
+                {
+                    "id": "method-1",
+                    "title": "A Strong World Model Method",
+                    "abstract": "World model method.",
+                    "paper_type": ["method"],
+                    "tags": ["world model"],
+                }
+            ],
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("build should enqueue survey LLM work, not call it")
+
+    monkeypatch.setattr("scripts.literature_survey._llm_topic_synthesis", fail_if_called)
+
+    count = build_literature_surveys(
+        data_dir,
+        {"research": {"taxonomy": {"paper_types": [{"label": "method", "description": "Methods"}]}}},
+        generated_at="2026-06-26T00:00:00Z",
+        use_llm=False,
+        enqueue_llm=True,
+    )
+
+    surveys = yaml.safe_load((data_dir / "surveys.yaml").read_text(encoding="utf-8"))
+    jobs = yaml.safe_load((data_dir / "survey_jobs.yaml").read_text(encoding="utf-8"))
+
+    assert count == 1
+    assert surveys["topics"][0]["id"] == "method"
+    assert surveys["topics"][0]["related_work_outline"]
+    assert jobs["schema_version"] == "awesome-hub.survey-jobs.v1"
+    assert jobs["jobs"][0]["status"] == "pending"
+    assert jobs["jobs"][0]["topic_id"] == "method"
+    assert jobs["jobs"][0]["paper_ids"] == ["method-1"]
+    assert jobs["jobs"][0]["prompt_hash"]
+
+
+def test_process_survey_jobs_updates_topic_and_marks_done(tmp_path: Path, monkeypatch):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    data_dir.joinpath("papers.yaml").write_text(
+        yaml.dump(
+            [
+                {
+                    "id": "method-1",
+                    "title": "A Strong World Model Method",
+                    "abstract": "World model method.",
+                    "paper_type": ["method"],
+                    "tags": ["world model"],
+                }
+            ],
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    build_literature_surveys(
+        data_dir,
+        {"research": {"taxonomy": {"paper_types": [{"label": "method", "description": "Methods"}]}}},
+        generated_at="2026-06-26T00:00:00Z",
+        use_llm=False,
+        enqueue_llm=True,
+    )
+
+    def fake_synthesis(topic, papers, tags):
+        return {
+            "outline": [
+                "Mainstream direction: LLM enhanced",
+                "Shared research pattern: LLM enhanced",
+                "Key differences: LLM enhanced",
+                "Trend evolution: LLM enhanced",
+                "Open questions: LLM enhanced",
+            ],
+            "outline_zh": [
+                "主流方向：LLM 增强",
+                "研究共性：LLM 增强",
+                "关键差异：LLM 增强",
+                "趋势演进：LLM 增强",
+                "开放问题：LLM 增强",
+            ],
+        }
+
+    monkeypatch.setattr("scripts.literature_survey._llm_topic_synthesis", fake_synthesis)
+
+    processed = process_survey_jobs(data_dir, {}, workers=1)
+
+    surveys = yaml.safe_load((data_dir / "surveys.yaml").read_text(encoding="utf-8"))
+    jobs = yaml.safe_load((data_dir / "survey_jobs.yaml").read_text(encoding="utf-8"))
+
+    assert processed == 1
+    assert surveys["topics"][0]["related_work_outline"][0] == "Mainstream direction: LLM enhanced"
+    assert surveys["topics"][0]["related_work_outline_zh"][0] == "主流方向：LLM 增强"
+    assert jobs["jobs"][0]["status"] == "done"
+    assert jobs["jobs"][0]["attempts"] == 1
+    assert jobs["jobs"][0]["error"] == ""
 
 
 def test_literature_review_synthesizes_lines_of_work_instead_of_tags(tmp_path: Path):

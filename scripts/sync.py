@@ -13,6 +13,7 @@ import os
 import re
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -186,6 +187,20 @@ Return ONLY valid JSON, no other text."""
 ARXIV_API_URL = "https://export.arxiv.org/api/query"
 
 
+def _arxiv_retry_wait(error: requests.RequestException, attempt: int) -> float:
+    response = getattr(error, "response", None)
+    retry_after = response.headers.get("Retry-After") if response is not None else ""
+    if retry_after:
+        try:
+            return max(1.0, float(retry_after))
+        except ValueError:
+            pass
+    status = getattr(response, "status_code", None)
+    if status == 429:
+        return float(os.environ.get("ARXIV_429_BACKOFF_SECONDS", str(10 * (attempt + 1))))
+    return float(2 ** attempt)
+
+
 def fetch_arxiv_by_id(arxiv_id: str) -> Optional[Dict]:
     """通过 arXiv ID 获取单篇论文元数据。"""
     url = f"{ARXIV_API_URL}?id_list={arxiv_id}"
@@ -258,7 +273,7 @@ def search_arxiv(keywords: List[str], categories: List[str],
                 break
             except requests.RequestException as e:
                 if attempt < 2:
-                    wait = 2 ** attempt
+                    wait = _arxiv_retry_wait(e, attempt)
                     print(f"[sync] arXiv API error ({e}), retrying in {wait}s...")
                     time.sleep(wait)
                 else:
@@ -459,6 +474,8 @@ def paper_to_yaml(paper: Dict, classification: Dict, source_repo: str = "arxiv")
         "preview": "/assets/placeholder.svg",
         "sources": paper.get("sources") or [{"repo": source_repo}],
     }
+    if isinstance(classification.get("relevant"), bool):
+        entry["relevant"] = classification["relevant"]
 
     # 动态添加 taxonomy dimensions（techniques, inputs, outputs 等）
     for key, value in classification.items():
@@ -470,7 +487,7 @@ def paper_to_yaml(paper: Dict, classification: Dict, source_repo: str = "arxiv")
     return entry
 
 
-def _filter_negative_keywords(papers: List[Dict], negative_keywords: List[str]) -> List[Dict]:
+def _filter_negative_keywords(papers: List[Dict], negative_keywords: List[str], *, llm_workers: int = 1) -> List[Dict]:
     """过滤掉命中负向关键词的论文。
 
     优先使用 LLM 语义理解（避免关键词误杀），
@@ -483,25 +500,46 @@ def _filter_negative_keywords(papers: List[Dict], negative_keywords: List[str]) 
     api_key = os.environ.get("ARK_API_KEY", "")
     if api_key:
         try:
-            from relevance_filter import _llm_filter_negative
-            result = []
-            for p in papers:
+            try:
+                from scripts.relevance_filter import _llm_filter_negative
+            except ImportError:
+                from relevance_filter import _llm_filter_negative  # type: ignore
+            workers = max(1, int(llm_workers or 1))
+
+            def keep_one(index: int, p: Dict) -> Tuple[int, Dict, bool]:
                 title = p.get("title", "")
                 abstract = p.get("abstract", "")
                 if title and abstract:
                     llm_result = _llm_filter_negative(title, abstract, negative_keywords)
                     if llm_result is True:
-                        continue  # excluded by LLM
+                        return index, p, False
                     if llm_result is False:
-                        result.append(p)  # confirmed not excluded
-                        continue
+                        return index, p, True
                     # llm_result is None → fallback to keyword matching
                 # Fallback: keyword matching
                 text = (title + " " + abstract).lower()
                 nk_lower = [k.lower() for k in negative_keywords]
-                if not any(nk in text for nk in nk_lower):
-                    result.append(p)
-            return result
+                return index, p, not any(nk in text for nk in nk_lower)
+
+            checked: List[Tuple[int, Dict, bool]] = []
+            if len(papers) <= 1 or workers <= 1:
+                for index, paper in enumerate(papers):
+                    checked.append(keep_one(index, paper))
+            else:
+                print(f"[sync] LLM 负向语义过滤: {len(papers)} 篇, workers={workers}")
+                with ThreadPoolExecutor(max_workers=workers) as executor:
+                    futures = {executor.submit(keep_one, index, paper): (index, paper) for index, paper in enumerate(papers)}
+                    completed = 0
+                    for future in as_completed(futures):
+                        index, paper = futures[future]
+                        try:
+                            checked.append(future.result())
+                        except Exception as exc:
+                            print(f"[sync] 负向过滤失败 [{index+1}/{len(papers)}]: {paper.get('title', '')[:60]} ({exc})")
+                            checked.append((index, paper, True))
+                        completed += 1
+                        print(f"[sync] 负向过滤完成 [{completed}/{len(papers)}]: {paper.get('title', '')[:60]}")
+            return [paper for _index, paper, keep in sorted(checked, key=lambda item: item[0]) if keep]
         except ImportError:
             pass
 
@@ -547,7 +585,8 @@ def sync_papers(new_papers: List[Dict], output_path: Path, source_repo: str = "a
                 negative_keywords: Optional[List[str]] = None,
                 research_context: str = "",
                 taxonomy: Optional[Dict] = None,
-                relevance_criteria: Optional[Dict] = None) -> int:
+                relevance_criteria: Optional[Dict] = None,
+                llm_workers: int = 1) -> int:
     """
     将新论文同步到 YAML 文件。
     Returns: 新增论文数量
@@ -561,23 +600,52 @@ def sync_papers(new_papers: List[Dict], output_path: Path, source_repo: str = "a
 
     if negative_keywords:
         before = len(new_papers)
-        new_papers = _filter_negative_keywords(new_papers, negative_keywords)
+        new_papers = _filter_negative_keywords(new_papers, negative_keywords, llm_workers=llm_workers)
         filtered = before - len(new_papers)
         if filtered:
             print(f"[sync] 负向关键词过滤: 排除 {filtered} 篇不相关论文")
 
-    # LLM 分类 + 相关性过滤
-    classified = []
-    rejected = 0
-    for i, paper in enumerate(new_papers):
+    def classify_one(index: int, paper: Dict) -> Tuple[int, Dict, Dict]:
         if skip_llm:
             classification = {"category": "Others", "tags": []}
         else:
-            print(f"[sync] 分类 [{i+1}/{len(new_papers)}]: {paper['title'][:60]}...")
             classification = classify_paper(
                 paper["title"], paper["abstract"], paper.get("categories", []),
                 research_context, taxonomy, relevance_criteria,
             )
+        return index, paper, classification
+
+    # LLM 分类 + 相关性过滤
+    classified = []
+    rejected = 0
+    if not skip_llm:
+        llm_workers = max(1, int(llm_workers or 1))
+        print(f"[sync] LLM 分类: {len(new_papers)} 篇, workers={llm_workers}")
+
+    results: List[Tuple[int, Dict, Dict]] = []
+    if skip_llm or len(new_papers) <= 1 or int(llm_workers or 1) <= 1:
+        for i, paper in enumerate(new_papers):
+            if not skip_llm:
+                print(f"[sync] 分类 [{i+1}/{len(new_papers)}]: {paper['title'][:60]}...")
+            results.append(classify_one(i, paper))
+    else:
+        with ThreadPoolExecutor(max_workers=max(1, int(llm_workers))) as executor:
+            futures = {
+                executor.submit(classify_one, i, paper): (i, paper)
+                for i, paper in enumerate(new_papers)
+            }
+            completed = 0
+            for future in as_completed(futures):
+                i, paper = futures[future]
+                try:
+                    results.append(future.result())
+                except Exception as exc:
+                    print(f"[sync] 分类失败 [{i+1}/{len(new_papers)}]: {paper.get('title', '')[:60]} ({exc})")
+                    results.append((i, paper, {"category": "Others", "tags": []}))
+                completed += 1
+                print(f"[sync] 分类完成 [{completed}/{len(new_papers)}]: {paper.get('title', '')[:60]}")
+
+    for _i, paper, classification in sorted(results, key=lambda item: item[0]):
 
         # 相关性过滤：LLM 判定不相关的论文直接拒绝
         if research_context and relevance_criteria and classification.get("relevant") is False:

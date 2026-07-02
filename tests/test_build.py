@@ -511,6 +511,35 @@ class TestRelevanceFiltering:
 
         assert seen["relevance_criteria"]["include"] == ["world models"]
 
+    def test_filter_irrelevant_papers_can_skip_llm(self, tmp_path, monkeypatch):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "papers.yaml").write_text(
+            "- title: Paper\n  abstract: About world models.\n",
+            encoding="utf-8",
+        )
+        seen = {}
+
+        def fake_filter(papers, negative, min_score, **kwargs):
+            seen.update(kwargs)
+            return papers, []
+
+        monkeypatch.setattr("relevance_filter.filter_papers", fake_filter)
+
+        filter_irrelevant_papers(
+            data_dir,
+            {
+                "project": {"description": "World model hub"},
+                "research": {
+                    "relevance_criteria": {"include": ["world models"]},
+                    "keywords": ["world model"],
+                },
+            },
+            use_llm=False,
+        )
+
+        assert seen["use_llm"] is False
+
 
 class TestRankPapersStep:
     """Test PaperRank-lite build step wiring."""

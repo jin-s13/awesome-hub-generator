@@ -271,6 +271,75 @@ def test_fetch_awesome_source_passes_runtime_cache_path(monkeypatch, tmp_path):
     assert created["cache_path"] == cache_path
 
 
+def test_fetch_awesome_source_passes_github_runtime_limits(monkeypatch):
+    from scripts.discover_sources import SourceInfo
+    from scripts.paper_sources import fetch_awesome_source
+
+    created = {}
+    discovered = {}
+    fetched_readmes = []
+
+    class FakeDiscoverer:
+        def __init__(self, **kwargs):
+            created.update(kwargs)
+
+        def source_from_repo(self, repo):
+            return SourceInfo(repo, f"https://github.com/{repo}", 10, "", "main")
+
+        def discover(self, keywords, min_stars=5, max_sources=10, query_expansion=None, max_search_terms=None):
+            discovered.update(
+                {
+                    "keywords": keywords,
+                    "min_stars": min_stars,
+                    "max_sources": max_sources,
+                    "query_expansion": query_expansion,
+                    "max_search_terms": max_search_terms,
+                }
+            )
+            return [
+                SourceInfo("extra/awesome-one", "https://github.com/extra/awesome-one", 9, "", "main"),
+                SourceInfo("extra/awesome-two", "https://github.com/extra/awesome-two", 8, "", "main"),
+            ]
+
+        def fetch_readme(self, source):
+            fetched_readmes.append(source.full_name)
+            return "- [CAD Paper](https://arxiv.org/abs/2601.00001)"
+
+        def list_repo_files(self, source):
+            return ["README.md"]
+
+    monkeypatch.setattr("scripts.discover_sources.GitHubDiscoverer", FakeDiscoverer)
+
+    fetch_awesome_source(
+        {
+            "research": {
+                "keywords": ["CAD", "B-Rep", "CSG"],
+                "sources": {"upstream_awesome": True},
+                "upstream_awesome": {"repos": ["owner/awesome-cad"], "auto_discover": True},
+                "auto_discover": {
+                    "min_stars": 7,
+                    "max_sources": 4,
+                    "max_search_terms": 2,
+                    "max_repos_to_fetch": 2,
+                    "query_expansion": ["neural CAD"],
+                    "search_interval_seconds": 0.5,
+                    "core_interval_seconds": 0.1,
+                    "request_timeout_seconds": 8,
+                    "max_rate_limit_sleep_seconds": 30,
+                },
+            },
+        }
+    )
+
+    assert created["search_interval_seconds"] == 0.5
+    assert created["core_interval_seconds"] == 0.1
+    assert created["request_timeout_seconds"] == 8
+    assert created["max_rate_limit_sleep_seconds"] == 30
+    assert discovered["max_search_terms"] == 2
+    assert discovered["query_expansion"] == ["neural CAD"]
+    assert fetched_readmes == ["owner/awesome-cad", "extra/awesome-one"]
+
+
 def test_fetch_awesome_source_filters_non_paper_resource_links(monkeypatch):
     from scripts.discover_sources import SourceInfo
     from scripts.paper_sources import fetch_awesome_source

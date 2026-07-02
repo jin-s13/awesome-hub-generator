@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import datetime as _dt
+import copy
 import json
 import re
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 import yaml
+
+SURVEY_JOBS_FILE = "survey_jobs.yaml"
 
 TOPIC_ZH_DEFAULTS = {
     "method": {
@@ -917,6 +921,89 @@ def _llm_topic_synthesis(topic: Dict[str, str], papers: List[Dict[str, Any]], ta
     return synthesis
 
 
+def _stable_hash(value: Any, length: int = 16) -> str:
+    text = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    import hashlib
+
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:length]
+
+
+def _now_iso() -> str:
+    return _dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+
+def _job_id(topic: Dict[str, str]) -> str:
+    return str(topic.get("path") or topic.get("id") or topic.get("label") or "topic")
+
+
+def _job_from_topic(topic: Dict[str, str], papers: List[Dict[str, Any]], tags: List[str]) -> Dict[str, Any]:
+    packet = _topic_synthesis_packet(topic, papers, tags)
+    return {
+        "id": _job_id(topic),
+        "topic_id": str(topic.get("id") or ""),
+        "topic_path": str(topic.get("path") or topic.get("id") or ""),
+        "label": str(topic.get("label") or topic.get("id") or ""),
+        "paper_ids": [str(paper.get("id") or "") for paper in papers if paper.get("id")],
+        "top_tags": tags[:10],
+        "prompt_hash": _stable_hash(_render_topic_synthesis_prompt(packet)),
+        "status": "pending",
+        "attempts": 0,
+        "error": "",
+        "updated_at": _now_iso(),
+    }
+
+
+def _load_survey_jobs(data_dir: Path) -> Dict[str, Any]:
+    path = data_dir / SURVEY_JOBS_FILE
+    if not path.exists():
+        return {"schema_version": "awesome-hub.survey-jobs.v1", "generated_at": _now_iso(), "jobs": []}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict):
+        data = {}
+    data.setdefault("schema_version", "awesome-hub.survey-jobs.v1")
+    data.setdefault("generated_at", _now_iso())
+    data.setdefault("jobs", [])
+    return data
+
+
+def _save_survey_jobs(data_dir: Path, jobs: Dict[str, Any]) -> None:
+    (data_dir / SURVEY_JOBS_FILE).write_text(
+        yaml.dump(jobs, allow_unicode=True, sort_keys=False, default_flow_style=False),
+        encoding="utf-8",
+    )
+
+
+def _write_survey_jobs(data_dir: Path, topic_jobs: List[Any], generated_at: str) -> int:
+    existing = _load_survey_jobs(data_dir)
+    existing_by_id = {str(job.get("id")): job for job in existing.get("jobs", []) if isinstance(job, dict)}
+    next_jobs = []
+    for _index, topic, matching, tags in topic_jobs:
+        job = _job_from_topic(topic, matching, tags)
+        previous = existing_by_id.get(job["id"])
+        if previous and previous.get("prompt_hash") == job["prompt_hash"] and previous.get("status") == "done":
+            merged = dict(job)
+            merged.update(
+                {
+                    "status": "done",
+                    "attempts": int(previous.get("attempts", 0) or 0),
+                    "error": "",
+                    "updated_at": previous.get("updated_at") or job["updated_at"],
+                }
+            )
+            next_jobs.append(merged)
+        else:
+            next_jobs.append(job)
+    _save_survey_jobs(
+        data_dir,
+        {
+            "schema_version": "awesome-hub.survey-jobs.v1",
+            "generated_at": generated_at,
+            "jobs": next_jobs,
+        },
+    )
+    return len(next_jobs)
+
+
 def _literature_references(papers: List[Dict[str, Any]], limit: int = 8) -> List[Dict[str, Any]]:
     return [
         {
@@ -1185,6 +1272,8 @@ def build_literature_surveys(
     *,
     generated_at: Optional[str] = None,
     use_llm: bool = True,
+    llm_workers: int = 1,
+    enqueue_llm: bool = False,
 ) -> int:
     """Generate data/surveys.yaml from papers.yaml, taxonomy, and score components."""
     papers = _load_yaml_list(data_dir / "papers.yaml")
@@ -1196,9 +1285,8 @@ def build_literature_surveys(
     if not topics:
         topics = _taxonomy_topics(config) or _fallback_topics(papers)
     generated_at = generated_at or _dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
-    survey_topics = []
-
-    for topic in topics:
+    topic_jobs = []
+    for index, topic in enumerate(topics):
         topic_id = topic["id"]
         matching = [
             paper
@@ -1208,6 +1296,14 @@ def build_literature_surveys(
         if not matching:
             continue
         tags = _top_tags(matching)
+        topic_jobs.append((index, topic, matching, tags))
+
+    if enqueue_llm:
+        _write_survey_jobs(data_dir, topic_jobs, generated_at)
+
+    def build_topic(job):
+        index, topic, matching, tags = job
+        topic_id = topic["id"]
         llm_synthesis = _llm_topic_synthesis(topic, matching, tags) if use_llm else None
         if use_llm and not llm_synthesis:
             raise RuntimeError(
@@ -1224,8 +1320,7 @@ def build_literature_surveys(
             if llm_synthesis and isinstance(llm_synthesis.get("literature_review_zh"), dict)
             else _literature_review_zh(topic, matching, tags)
         )
-        survey_topics.append(
-            {
+        return index, {
                 "id": topic_id,
                 "label": topic["label"],
                 "label_zh": topic.get("label_zh", ""),
@@ -1240,7 +1335,24 @@ def build_literature_surveys(
                 "literature_review": literature_review,
                 "literature_review_zh": literature_review_zh,
             }
-        )
+
+    survey_results = []
+    workers = max(1, int(llm_workers or 1))
+    if use_llm and len(topic_jobs) > 1 and workers > 1:
+        print(f"[survey] LLM topic synthesis: {len(topic_jobs)} topics, workers={workers}")
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(build_topic, job): job for job in topic_jobs}
+            completed = 0
+            for future in as_completed(futures):
+                _index, topic, _matching, _tags = futures[future]
+                survey_results.append(future.result())
+                completed += 1
+                print(f"[survey] topic synthesis complete [{completed}/{len(topic_jobs)}]: {topic.get('label', topic.get('id', 'topic'))}")
+    else:
+        for job in topic_jobs:
+            survey_results.append(build_topic(job))
+
+    survey_topics = [topic for _index, topic in sorted(survey_results, key=lambda item: item[0])]
 
     data = {
         "schema_version": "awesome-hub.surveys.v1",
@@ -1252,3 +1364,149 @@ def build_literature_surveys(
         encoding="utf-8",
     )
     return len(survey_topics)
+
+
+def _topic_lookup(data_dir: Path, config: Dict[str, Any]) -> Dict[str, Any]:
+    papers = _load_yaml_list(data_dir / "papers.yaml")
+    topics = _load_taxonomy_topics(data_dir)
+    taxonomy_mode = bool(topics)
+    if not topics:
+        topics = _taxonomy_topics(config) or _fallback_topics(papers)
+    lookup = {}
+    for topic in topics:
+        matching = [paper for paper in papers if _matches_topic(paper, topic, taxonomy_mode=taxonomy_mode)]
+        if not matching:
+            continue
+        tags = _top_tags(matching)
+        lookup[_job_id(topic)] = (topic, matching, tags)
+    return lookup
+
+
+def _merge_llm_synthesis_into_topic(topic_entry: Dict[str, Any], synthesis: Dict[str, Any]) -> Dict[str, Any]:
+    updated = copy.deepcopy(topic_entry)
+    if synthesis.get("outline"):
+        updated["related_work_outline"] = synthesis["outline"]
+    if synthesis.get("outline_zh"):
+        updated["related_work_outline_zh"] = synthesis["outline_zh"]
+    if isinstance(synthesis.get("literature_review"), dict):
+        updated["literature_review"] = synthesis["literature_review"]
+    if isinstance(synthesis.get("literature_review_zh"), dict):
+        updated["literature_review_zh"] = synthesis["literature_review_zh"]
+    return updated
+
+
+def _load_surveys(data_dir: Path) -> Dict[str, Any]:
+    path = data_dir / "surveys.yaml"
+    if not path.exists():
+        return {"schema_version": "awesome-hub.surveys.v1", "generated_at": _now_iso(), "topics": []}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict):
+        data = {}
+    data.setdefault("schema_version", "awesome-hub.surveys.v1")
+    data.setdefault("generated_at", _now_iso())
+    data.setdefault("topics", [])
+    return data
+
+
+def _save_surveys(data_dir: Path, surveys: Dict[str, Any]) -> None:
+    (data_dir / "surveys.yaml").write_text(
+        yaml.dump(surveys, allow_unicode=True, sort_keys=False, default_flow_style=False),
+        encoding="utf-8",
+    )
+
+
+def process_survey_jobs(
+    data_dir: Path,
+    config: Dict[str, Any],
+    *,
+    workers: int = 1,
+    limit: int = 0,
+    retry_failed: bool = True,
+) -> int:
+    """Run queued LLM survey synthesis jobs and checkpoint after every topic."""
+    jobs_doc = _load_survey_jobs(data_dir)
+    jobs = [job for job in jobs_doc.get("jobs", []) if isinstance(job, dict)]
+    runnable_statuses = {"pending", "running"}
+    if retry_failed:
+        runnable_statuses.add("failed")
+    pending = [job for job in jobs if job.get("status") in runnable_statuses]
+    if limit and limit > 0:
+        pending = pending[:limit]
+    if not pending:
+        return 0
+
+    topic_lookup = _topic_lookup(data_dir, config)
+    surveys = _load_surveys(data_dir)
+    topics = surveys.get("topics", []) if isinstance(surveys.get("topics"), list) else []
+    topic_index = {str(topic.get("id")): idx for idx, topic in enumerate(topics) if isinstance(topic, dict)}
+    topic_path_index = {str(topic.get("path")): idx for idx, topic in enumerate(topics) if isinstance(topic, dict) and topic.get("path")}
+
+    processed = 0
+
+    def run_job(job: Dict[str, Any]) -> Dict[str, Any]:
+        job_id = str(job.get("id") or "")
+        if job_id not in topic_lookup:
+            raise RuntimeError(f"survey topic context missing for job {job_id}")
+        topic, matching, tags = topic_lookup[job_id]
+        synthesis = _llm_topic_synthesis(topic, matching, tags)
+        if not synthesis:
+            raise RuntimeError(f"LLM topic synthesis returned empty result for {job_id}")
+        return {"job_id": job_id, "topic": topic, "synthesis": synthesis}
+
+    def apply_completed(job: Dict[str, Any], result: Optional[Dict[str, Any]], error: str) -> bool:
+        job["attempts"] = int(job.get("attempts", 0) or 0) + 1
+        job["updated_at"] = _now_iso()
+        if error:
+            job["status"] = "failed"
+            job["error"] = error
+            _save_survey_jobs(data_dir, jobs_doc)
+            return False
+        topic = result["topic"]
+        idx = topic_path_index.get(str(topic.get("path"))) if topic.get("path") else None
+        if idx is None:
+            idx = topic_index.get(str(topic.get("id")))
+        if idx is None:
+            job["status"] = "failed"
+            job["error"] = f"survey topic entry missing for {result['job_id']}"
+            _save_survey_jobs(data_dir, jobs_doc)
+            return False
+        topics[idx] = _merge_llm_synthesis_into_topic(topics[idx], result["synthesis"])
+        job["status"] = "done"
+        job["error"] = ""
+        _save_surveys(data_dir, surveys)
+        _save_survey_jobs(data_dir, jobs_doc)
+        return True
+
+    workers = max(1, int(workers or 1))
+    for job in pending:
+        job["status"] = "running"
+        job["updated_at"] = _now_iso()
+    _save_survey_jobs(data_dir, jobs_doc)
+
+    if workers <= 1 or len(pending) <= 1:
+        for job in pending:
+            try:
+                result = run_job(job)
+                error = ""
+            except Exception as exc:
+                result = None
+                error = str(exc)
+            if apply_completed(job, result, error):
+                processed += 1
+                print(f"[survey-worker] completed {processed}/{len(pending)}: {job.get('label') or job.get('id')}")
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(run_job, job): job for job in pending}
+            for future in as_completed(futures):
+                job = futures[future]
+                try:
+                    result = future.result()
+                    error = ""
+                except Exception as exc:
+                    result = None
+                    error = str(exc)
+                if apply_completed(job, result, error):
+                    processed += 1
+                    print(f"[survey-worker] completed {processed}/{len(pending)}: {job.get('label') or job.get('id')}")
+
+    return processed

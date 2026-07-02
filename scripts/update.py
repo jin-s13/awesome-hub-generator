@@ -493,8 +493,8 @@ def literature_surveys_step(config: dict, data_dir: Path):
     """Generate taxonomy-driven survey data."""
     from scripts.literature_survey import build_literature_surveys
 
-    topics = build_literature_surveys(data_dir, config)
-    logger.info(f"Literature surveys generated {topics} topics")
+    topics = build_literature_surveys(data_dir, config, use_llm=False, enqueue_llm=True)
+    logger.info(f"Literature surveys generated {topics} topics; LLM survey jobs queued")
 
 
 # === Step 4.5: Datasets ===
