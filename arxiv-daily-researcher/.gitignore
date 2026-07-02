@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual Environment
+venv/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# Environment variables
+.env
+.env.local
+!.env.example
+
+# Logs
+logs/
+*.log
+
+# Data (runtime generated)
+data/
+
+# Database
+*.db-journal
+*.db-wal
+*.db-shm
+
+# OS
+.DS_Store
+Thumbs.db
+*:Zone.Identifier
+
+# Temp
+*.bak
+*.tmp
+*.swp
+*~
+
+# test
+test/

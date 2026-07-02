@@ -21,6 +21,11 @@ RESEARCHER_CONFIG_PATH = RESEARCHER_DIR / "configs" / "config.json"
 RESEARCHER_ENV_PATH = RESEARCHER_DIR / ".env"
 
 
+def _should_force_official_mineru() -> bool:
+    allow_local = os.environ.get("MINERU_ALLOW_LOCAL_IN_CI", "").lower() in {"1", "true", "yes"}
+    return os.environ.get("GITHUB_ACTIONS", "").lower() == "true" and not allow_local
+
+
 def researcher_env_values(
     ark_api_key: Optional[str] = None,
     ark_base_url: Optional[str] = None,
@@ -89,6 +94,11 @@ def awesome_to_researcher_config(awesome_config: Dict[str, Any]) -> Dict[str, An
 
     # --- pdf_parser ---
     pdf_parser_mode = deep_analysis.get("pdf_parser", "pymupdf")
+    mineru_base_url = deep_analysis.get("mineru_base_url", "https://mineru.net/api/v4")
+    mineru_api_mode = deep_analysis.get("mineru_api_mode", "auto")
+    if _should_force_official_mineru():
+        mineru_base_url = "https://mineru.net/api/v4"
+        mineru_api_mode = "official"
 
     # --- keyword_tracker ---
     kt_enabled = keyword_tracking.get("enabled", True)
@@ -195,6 +205,8 @@ def awesome_to_researcher_config(awesome_config: Dict[str, Any]) -> Dict[str, An
         },
         "pdf_parser": {
             "mode": pdf_parser_mode,
+            "base_url": mineru_base_url,
+            "api_mode": mineru_api_mode,
             "mineru_model_version": "vlm",
             "poll_interval": 3,
             "poll_timeout": 300,

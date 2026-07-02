@@ -248,6 +248,8 @@ research:
     enabled: true               # 是否对高分论文做 PDF 深度分析
     min_score: 30               # 最低评分门槛
     pdf_parser: "mineru"       # pymupdf（本地）或 mineru（云端）
+    # mineru_base_url: "http://mineru.local:2511"  # 可选：本地 MinerU FastAPI 服务
+    # mineru_api_mode: "local"                    # auto / official / local
     max_papers_per_run: 10      # 每次运行最多分析多少篇
 
   # === LLM 解读/TLDR 补齐 ===

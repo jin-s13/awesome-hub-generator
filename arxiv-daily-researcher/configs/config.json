@@ -1,0 +1,203 @@
+{
+  "search_settings": {
+    "search_days": 3,
+    "max_results": 100,
+    "max_results_per_source": {}
+  },
+  "data_sources": {
+    "enabled": [
+      "arxiv"
+    ],
+    "journals": [],
+    "reports_by_source": true,
+    "arxiv": {
+      "fetch_timeout_seconds": 180
+    }
+  },
+  "run_lock": {
+    "max_age_hours": 12
+  },
+  "target_domains": {
+    "domains": [
+      "cs.CV",
+      "cs.LG",
+      "cs.AI",
+      "cs.RO"
+    ]
+  },
+  "keywords": {
+    "primary_keywords": {
+      "weight": 1.0,
+      "keywords": [
+        "world model",
+        "world simulator",
+        "generative world model",
+        "interactive world model",
+        "video world model",
+        "world dynamics prediction",
+        "model-based reinforcement learning world model"
+      ]
+    },
+    "enable_reference_extraction": true,
+    "reference_keywords_config": {
+      "max_keywords": 10,
+      "similarity_threshold": 0.75,
+      "weight_distribution": {
+        "high_importance": {
+          "weight": 1.0,
+          "count": 3
+        },
+        "medium_importance": {
+          "weight": 0.2,
+          "count": 5
+        },
+        "low_importance": {
+          "weight": 0.1,
+          "count": 2
+        }
+      }
+    },
+    "research_context": "研究方向: Awesome World Model Hub"
+  },
+  "scoring_settings": {
+    "keyword_relevance_score": {
+      "max_score_per_keyword": 10
+    },
+    "author_bonus": {
+      "enabled": false,
+      "expert_authors": [],
+      "bonus_points": 5.0
+    },
+    "passing_score_formula": {
+      "base_score": 1.5,
+      "weight_coefficient": 2.5
+    },
+    "include_all_in_report": true
+  },
+  "paths": {
+    "data_dir": "data",
+    "reference_pdfs": "data/reference_pdfs",
+    "reports": "data/reports",
+    "downloaded_pdfs": "data/downloaded_pdfs",
+    "history_dir": "data/history"
+  },
+  "keyword_tracker": {
+    "enabled": true,
+    "database": {
+      "path": "data/keywords/keywords.db"
+    },
+    "normalization": {
+      "enabled": true,
+      "batch_size": 25
+    },
+    "trend_view": {
+      "default_days": 30
+    },
+    "charts": {
+      "bar_chart": {
+        "top_n": 15
+      },
+      "trend_chart": {
+        "top_n": 5
+      }
+    },
+    "report": {
+      "enabled": true,
+      "frequency": "weekly"
+    }
+  },
+  "notifications": {
+    "enabled": false,
+    "on_success": false,
+    "on_failure": false,
+    "attach_reports": false,
+    "top_n": 5,
+    "channels": {
+      "email": {
+        "enabled": false
+      },
+      "wechat_work": {
+        "enabled": false
+      },
+      "dingtalk": {
+        "enabled": false
+      },
+      "telegram": {
+        "enabled": false
+      },
+      "slack": {
+        "enabled": false
+      },
+      "generic_webhook": {
+        "enabled": false
+      }
+    }
+  },
+  "retry": {
+    "max_attempts": 5,
+    "min_wait": 2,
+    "max_wait": 60
+  },
+  "logging": {
+    "rotation_type": "time",
+    "keep_days": 30
+  },
+  "concurrency": {
+    "enabled": true,
+    "workers": 2
+  },
+  "pdf_parser": {
+    "mode": "mineru",
+    "mineru_model_version": "vlm",
+    "poll_interval": 3,
+    "poll_timeout": 300
+  },
+  "report_settings": {
+    "enable_html_report": true,
+    "enable_markdown_report": true
+  },
+  "auto_update": {
+    "enabled": true
+  },
+  "token_tracking": {
+    "enabled": true
+  },
+  "proxy": {
+    "enabled": false,
+    "url": "",
+    "no_proxy": "localhost,127.0.0.1",
+    "scope": {
+      "arxiv": true,
+      "openalex": false,
+      "semantic_scholar": false,
+      "llm_api": false,
+      "notifications": false,
+      "update_check": false
+    }
+  },
+  "webdav": {
+    "enabled": false,
+    "remote_path": "/arxiv-daily-researcher/",
+    "sync_mode": "after_report",
+    "cron_schedule": "0 23 * * *",
+    "sync_configs": false,
+    "sync_history": false,
+    "sync_keywords": false,
+    "sync_reports": false
+  },
+  "trend_research": {
+    "default_date_range_days": 365,
+    "max_results": 500,
+    "sort_order": "ascending",
+    "report_position": "end",
+    "generate_tldr": true,
+    "tldr_batch_size": 10,
+    "output_formats": [
+      "markdown",
+      "html"
+    ],
+    "enabled_skills": [
+      "comprehensive_analysis"
+    ]
+  }
+}

@@ -1,0 +1,51 @@
+<!-- 更新通知模板 — Email HTML -->
+<!--
+可用变量：
+  {local_version}    — 当前版本号
+  {remote_version}   — 最新版本号
+  {release_url}      — GitHub Release 页面链接
+  {release_notes}    — 更新日志摘要
+-->
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;
+       font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<tr><td style="padding:32px 32px 0;">
+    <h1 style="margin:0;font-size:20px;color:#1a1f36;">ArXiv Daily Researcher</h1>
+    <p style="margin:8px 0 0;font-size:16px;color:#f59e0b;font-weight:600;">🔄 新版本可用</p>
+</td></tr>
+<tr><td style="padding:20px 32px;">
+    <table width="100%" cellpadding="0" cellspacing="0"
+           style="border:1px solid #e8ebf0;border-radius:8px;border-collapse:separate;">
+    <tr style="background:#f9fafb;">
+        <td style="padding:12px 16px;font-size:13px;color:#6b7280;">当前版本</td>
+        <td style="padding:12px 16px;font-size:13px;font-weight:600;color:#374151;">
+            <code>{local_version}</code></td>
+    </tr>
+    <tr>
+        <td style="padding:12px 16px;font-size:13px;color:#6b7280;">最新版本</td>
+        <td style="padding:12px 16px;font-size:13px;font-weight:600;color:#059669;">
+            <code>{remote_version}</code></td>
+    </tr>
+    </table>
+</td></tr>
+<tr><td style="padding:0 32px 16px;">
+    <h3 style="margin:0 0 8px;font-size:14px;color:#1a1f36;">更新方式</h3>
+    <p style="margin:0;font-size:13px;color:#4b5563;">
+        Docker: <code>docker compose pull &amp;&amp; docker compose up -d</code><br>
+        本地: <code>git pull</code>
+    </p>
+</td></tr>
+<tr><td style="padding:16px 32px 0;">
+    <h3 style="margin:0 0 8px;font-size:14px;color:#1a1f36;">更新日志</h3>
+    <p style="margin:0;font-size:13px;color:#4b5563;line-height:1.6;
+       background:#f9fafb;padding:12px;border-radius:6px;">
+        {release_notes}
+    </p>
+</td></tr>
+<tr><td style="padding:20px 32px;">
+    <a href="{release_url}"
+       style="display:inline-block;padding:10px 24px;background:#5b6af0;color:#fff;
+              text-decoration:none;border-radius:6px;font-size:14px;font-weight:600;">
+        查看发布页面
+    </a>
+</td></tr>
+</table>

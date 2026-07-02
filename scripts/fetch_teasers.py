@@ -61,7 +61,21 @@ HEADERS = {
 }
 
 # MinerU API
-MINERU_BASE_URL = "https://mineru.net/api/v4"
+def _normalize_mineru_base_url(base_url: str) -> str:
+    """Accept either the API root or the Swagger docs URL."""
+    normalized = (base_url or "https://mineru.net/api/v4").split("#", 1)[0].rstrip("/")
+    if normalized.endswith("/docs"):
+        normalized = normalized[: -len("/docs")]
+    return normalized.rstrip("/")
+
+
+def _should_force_official_mineru() -> bool:
+    allow_local = os.environ.get("MINERU_ALLOW_LOCAL_IN_CI", "").lower() in {"1", "true", "yes"}
+    return os.environ.get("GITHUB_ACTIONS", "").lower() == "true" and not allow_local
+
+
+MINERU_BASE_URL = _normalize_mineru_base_url(os.environ.get("MINERU_BASE_URL", "https://mineru.net/api/v4"))
+MINERU_API_MODE = os.environ.get("MINERU_API_MODE", "auto").lower()
 MINERU_API_KEY = os.environ.get("MINERU_API_KEY", "")
 MINERU_VERIFY_SSL = os.environ.get("MINERU_VERIFY_SSL", "true").lower() not in ("0", "false", "no")
 MINERU_POLL_INTERVAL = 3
@@ -69,6 +83,31 @@ MINERU_POLL_TIMEOUT = 60
 
 if not MINERU_VERIFY_SSL:
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
+def _is_local_mineru_api() -> bool:
+    if _should_force_official_mineru():
+        return False
+    if MINERU_API_MODE == "local":
+        return True
+    if MINERU_API_MODE == "official":
+        return False
+    return "mineru.net/api/v4" not in _normalize_mineru_base_url(MINERU_BASE_URL)
+
+
+def _local_mineru_backend(model_version: str = "vlm") -> str:
+    backend = (model_version or "pipeline").strip().lower()
+    if backend in {
+        "pipeline",
+        "vlm-engine",
+        "hybrid-engine",
+        "vlm-http-client",
+        "hybrid-http-client",
+    }:
+        return backend
+    if backend == "vlm":
+        return "vlm-engine"
+    return "pipeline"
 
 
 def _extract_arxiv_id(url: str) -> Optional[str]:
@@ -235,6 +274,80 @@ def _fetch_arxiv_pdf_thumbnail(arxiv_id: str) -> Optional[str]:
     return None
 
 
+def _extract_first_large_image_from_zip(zip_bytes: bytes, dest_path: Path) -> bool:
+    """Extract the first useful image from a MinerU result ZIP."""
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        image_files = sorted(
+            [
+                f
+                for f in zf.namelist()
+                if not f.endswith("/")
+                and any(f.lower().endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".gif", ".webp"])
+            ]
+        )
+
+        if not image_files:
+            logger.debug(f"    No images found in MinerU ZIP")
+            return False
+
+        for img_path in image_files:
+            data = zf.read(img_path)
+            if len(data) > 10 * 1024:
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                dest_path.write_bytes(data)
+                logger.debug(f"    MinerU extracted: {img_path} ({len(data)} bytes)")
+                return True
+
+        data = zf.read(image_files[0])
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        dest_path.write_bytes(data)
+        return True
+
+
+def _extract_pdf_figures_mineru_local(arxiv_id: str, dest_path: Path) -> bool:
+    """Extract figures using a local MinerU FastAPI service."""
+    pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+    logger.debug(f"    Submitting to local MinerU: {pdf_url}")
+
+    try:
+        pdf_resp = requests.get(
+            pdf_url,
+            timeout=60,
+            verify=MINERU_VERIFY_SSL,
+        )
+        pdf_resp.raise_for_status()
+
+        resp = requests.post(
+            f"{_normalize_mineru_base_url(MINERU_BASE_URL)}/file_parse",
+            files={
+                "files": (
+                    f"{arxiv_id}.pdf",
+                    io.BytesIO(pdf_resp.content),
+                    "application/pdf",
+                )
+            },
+            data={
+                "backend": _local_mineru_backend("vlm"),
+                "effort": "high",
+                "parse_method": "auto",
+                "formula_enable": "false",
+                "table_enable": "false",
+                "image_analysis": "true",
+                "return_md": "true",
+                "return_images": "true",
+                "response_format_zip": "true",
+            },
+            timeout=max(MINERU_POLL_TIMEOUT, 60),
+            verify=MINERU_VERIFY_SSL,
+        )
+        resp.raise_for_status()
+        return _extract_first_large_image_from_zip(resp.content, dest_path)
+
+    except Exception as e:
+        logger.debug(f"    Local MinerU extract error: {e}")
+        return False
+
+
 def _extract_pdf_figures_mineru(arxiv_id: str, dest_path: Path) -> bool:
     """
     Extract figures from PDF using MinerU cloud API.
@@ -245,6 +358,9 @@ def _extract_pdf_figures_mineru(arxiv_id: str, dest_path: Path) -> bool:
 
     This gives us the actual Figure 1, Figure 2, etc. from the paper.
     """
+    if _is_local_mineru_api():
+        return _extract_pdf_figures_mineru_local(arxiv_id, dest_path)
+
     if not MINERU_API_KEY:
         return False
 
@@ -309,33 +425,7 @@ def _extract_pdf_figures_mineru(arxiv_id: str, dest_path: Path) -> bool:
     try:
         resp = requests.get(zip_url, timeout=60, verify=MINERU_VERIFY_SSL)
         resp.raise_for_status()
-
-        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
-            # Look for images in the images/ directory
-            image_files = sorted(
-                [f for f in zf.namelist() if f.startswith("images/") and any(
-                    f.endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".gif", ".webp"]
-                )]
-            )
-
-            if not image_files:
-                logger.debug(f"    No images found in MinerU ZIP")
-                return False
-
-            # Try each image, use the first one > 10KB
-            for img_path in image_files:
-                data = zf.read(img_path)
-                if len(data) > 10 * 1024:
-                    dest_path.parent.mkdir(parents=True, exist_ok=True)
-                    dest_path.write_bytes(data)
-                    logger.debug(f"    MinerU extracted: {img_path} ({len(data)} bytes)")
-                    return True
-
-            # If all images are small, still use the first one
-            data = zf.read(image_files[0])
-            dest_path.parent.mkdir(parents=True, exist_ok=True)
-            dest_path.write_bytes(data)
-            return True
+        return _extract_first_large_image_from_zip(resp.content, dest_path)
 
     except Exception as e:
         logger.debug(f"    MinerU ZIP download/extract error: {e}")

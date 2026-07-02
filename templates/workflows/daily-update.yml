@@ -109,6 +109,8 @@ jobs:
           ARK_TIMEOUT_SECONDS: ${{ vars.ARK_TIMEOUT_SECONDS || '60' }}
           ARK_SURVEY_TIMEOUT_SECONDS: ${{ vars.ARK_SURVEY_TIMEOUT_SECONDS || '180' }}
           MINERU_API_KEY: ${{ secrets.MINERU_API_KEY }}
+          MINERU_BASE_URL: https://mineru.net/api/v4
+          MINERU_API_MODE: official
           OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
           OPENALEX_MAILTO: ${{ secrets.OPENALEX_MAILTO }}
           SEMANTIC_SCHOLAR_API_KEY: ${{ secrets.SEMANTIC_SCHOLAR_API_KEY }}
