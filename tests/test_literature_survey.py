@@ -125,6 +125,8 @@ def test_build_literature_surveys_groups_taxonomy_and_score_components(tmp_path:
     assert "轨迹条件世界建模" in surveys["topics"][0]["related_work_outline_zh"][0]
     assert surveys["topics"][0]["related_work_outline_zh"][1].startswith("研究共性：")
     assert "相比视频 token 基线提升了轨迹预测效果" in surveys["topics"][0]["related_work_outline_zh"][1]
+    assert surveys["topics"][0]["synthesis_status"] == "fallback"
+    assert "warning_survey_synthesis_fallback" in surveys["topics"][0]["generation_notes"]
     assert surveys["topics"][1]["top_tags"] == ["benchmark", "dataset"]
     assert surveys["topics"][1]["label_zh"] == "基准"
 
@@ -233,6 +235,65 @@ def test_process_survey_jobs_updates_topic_and_marks_done(tmp_path: Path, monkey
     assert jobs["jobs"][0]["status"] == "done"
     assert jobs["jobs"][0]["attempts"] == 1
     assert jobs["jobs"][0]["error"] == ""
+    assert surveys["topics"][0]["synthesis_status"] == "llm"
+    assert "warning_survey_synthesis_fallback" not in surveys["topics"][0]["generation_notes"]
+
+
+def test_cad_literature_fallback_uses_cad_domain_instead_of_world_model_framing(tmp_path: Path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    data_dir.joinpath("papers.yaml").write_text(
+        yaml.dump(
+            [
+                {
+                    "id": "cad-method",
+                    "title": "Text-to-CAD Program Generation",
+                    "year": 2026,
+                    "paper_type": ["method"],
+                    "tags": ["CV", "AI", "CAD"],
+                    "analysis": {
+                        "innovations": ["Generates editable CAD programs from text prompts"],
+                        "methodology": "Uses a language model to emit parametric CAD command sequences.",
+                        "key_results": "Improves geometric validity and editability on CAD benchmarks.",
+                        "limitations": ["Constraint satisfaction remains incomplete"],
+                    },
+                    "analysis_cn": {
+                        "innovations": ["从文本提示生成可编辑 CAD 程序"],
+                        "methodology": "使用语言模型输出参数化 CAD 命令序列。",
+                        "key_results": "在 CAD 基准上提升几何有效性和可编辑性。",
+                        "limitations": ["约束满足仍不完整"],
+                    },
+                    "score": {"read_first_score": 90},
+                }
+            ],
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    build_literature_surveys(
+        data_dir,
+        {
+            "project": {"name": "Awesome AI4CAD Hub", "description": "AI papers for CAD and B-Rep modeling."},
+            "research": {
+                "keywords": ["AI for CAD", "B-Rep", "parametric CAD"],
+                "taxonomy": {"paper_types": [{"label": "method", "description": "New AI methods for CAD generation."}]},
+            },
+        },
+        generated_at="2026-06-26T00:00:00Z",
+        use_llm=False,
+    )
+
+    topic = yaml.safe_load((data_dir / "surveys.yaml").read_text(encoding="utf-8"))["topics"][0]
+    combined_en = " ".join(topic["related_work_outline"] + topic["literature_review"]["consensus"] + topic["literature_review"]["disagreements"])
+    combined_zh = " ".join(topic["related_work_outline_zh"] + topic["literature_review_zh"]["共识"] + topic["literature_review_zh"]["分歧"])
+
+    assert "AI4CAD" in combined_en
+    assert "CAD model" in combined_en
+    assert "world model" not in combined_en.lower()
+    assert "AI4CAD" in combined_zh
+    assert "CAD 模型" in combined_zh
 
 
 def test_literature_review_synthesizes_lines_of_work_instead_of_tags(tmp_path: Path):

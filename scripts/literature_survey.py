@@ -42,6 +42,45 @@ TOPIC_ZH_DEFAULTS = {
     },
 }
 
+DOMAIN_FALLBACK_FRAMES = {
+    "cad": {
+        "artifact": "CAD model",
+        "artifact_zh": "CAD 模型",
+        "goal": "produce editable, valid, and reusable CAD artifacts from design intent or geometric observations",
+        "goal_zh": "从设计意图或几何观测生成可编辑、有效且可复用的 CAD 工件",
+        "evidence": "geometric validity, editability, reconstruction fidelity, parametric consistency, and downstream design utility",
+        "evidence_zh": "几何有效性、可编辑性、重建保真度、参数一致性和下游设计效用",
+        "split": "input modality, CAD representation, constraint handling, editability, and evaluation protocol",
+        "split_zh": "输入模态、CAD 表示、约束处理、可编辑性和评测协议",
+        "trend": "from isolated CAD generation demonstrations toward benchmarked, editable, and workflow-integrated AI4CAD systems",
+        "trend_zh": "从单点 CAD 生成演示转向有基准、有可编辑性验证并能接入工作流的 AI4CAD 系统",
+    },
+    "world_model": {
+        "artifact": "world model",
+        "artifact_zh": "世界模型",
+        "goal": "learn predictive state representations that support simulation, planning, and interactive decision-making",
+        "goal_zh": "学习支持仿真、规划和交互式决策的预测状态表示",
+        "evidence": "prediction quality, controllability, closed-loop utility, reproducibility, and benchmark coverage",
+        "evidence_zh": "预测质量、可控性、闭环效用、可复现性和基准覆盖",
+        "split": "representation, supervision signal, action interface, evaluation target, and deployment setting",
+        "split_zh": "表示方式、监督信号、动作接口、评测目标和部署场景",
+        "trend": "from isolated model claims toward interactive systems, benchmarks, and comparable evidence across settings",
+        "trend_zh": "从单点模型主张转向交互式系统、标准化基准和跨设置可比较证据",
+    },
+    "generic": {
+        "artifact": "research artifact",
+        "artifact_zh": "研究工件",
+        "goal": "turn research claims into comparable methods, evidence, systems, and reusable artifacts",
+        "goal_zh": "把研究主张转化为可比较的方法、证据、系统和可复用工件",
+        "evidence": "task fit, methodology, results, reproducibility, limitations, and deployment constraints",
+        "evidence_zh": "任务匹配、方法、结果、可复现性、局限和部署约束",
+        "split": "problem setting, representation, supervision, evaluation target, and operational assumptions",
+        "split_zh": "问题设定、表示方式、监督信号、评测目标和运行假设",
+        "trend": "from isolated demonstrations toward shared tasks, stronger evidence, and reusable systems",
+        "trend_zh": "从单点演示转向共享任务、更强证据和可复用系统",
+    },
+}
+
 DESCRIPTION_ZH_OVERRIDES = {
     "New methods and algorithms": "新方法和算法",
     "Datasets and evaluation protocols": "数据集和评测协议",
@@ -602,6 +641,32 @@ TOPIC_SYNTHESIS_FRAMES = {
 }
 
 
+def _domain_profile(config: Dict[str, Any]) -> Dict[str, str]:
+    project = config.get("project", {}) if isinstance(config, dict) else {}
+    research = config.get("research", {}) if isinstance(config, dict) else {}
+    taxonomy = research.get("taxonomy", {}) if isinstance(research.get("taxonomy"), dict) else {}
+    text_parts = [
+        project.get("name", ""),
+        project.get("description", ""),
+        " ".join(str(item) for item in research.get("keywords", []) if item),
+        " ".join(str(item.get("description", "")) for item in taxonomy.get("paper_types", []) if isinstance(item, dict)),
+    ]
+    text = " ".join(text_parts).lower()
+    if any(term in text for term in ["cad", "computer-aided design", "b-rep", "boundary representation", "parametric", "csg"]):
+        profile = DOMAIN_FALLBACK_FRAMES["cad"]
+        domain = "AI4CAD"
+        domain_zh = "AI4CAD"
+    elif any(term in text for term in ["world model", "world-model", "dynamics", "simulation", "planning"]):
+        profile = DOMAIN_FALLBACK_FRAMES["world_model"]
+        domain = "world model"
+        domain_zh = "世界模型"
+    else:
+        profile = DOMAIN_FALLBACK_FRAMES["generic"]
+        domain = str(project.get("name") or "this research area")
+        domain_zh = domain
+    return {"domain": domain, "domain_zh": domain_zh, **profile}
+
+
 def _paper_evidence_text(paper: Dict[str, Any], *, zh: bool = False) -> str:
     analysis = _analysis_for(paper, zh=zh)
     parts = [
@@ -1032,7 +1097,12 @@ def _timeline(papers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     ]
 
 
-def _literature_review(topic: Dict[str, str], papers: List[Dict[str, Any]], tags: List[str]) -> Dict[str, Any]:
+def _literature_review(
+    topic: Dict[str, str],
+    papers: List[Dict[str, Any]],
+    tags: List[str],
+    domain: Dict[str, str],
+) -> Dict[str, Any]:
     matrix = _line_of_work_matrix(topic, papers)
     line_names = _line_names(matrix)
     dominant = matrix[0] if matrix else {}
@@ -1049,12 +1119,13 @@ def _literature_review(topic: Dict[str, str], papers: List[Dict[str, Any]], tags
     years = _year_span(papers)
     if len(years) > 1:
         trend = (
-            f"Across {years[0]}-{years[-1]}, the topic moves from isolated modeling claims toward "
-            f"work that ties {frame['goal']} to stronger evidence and clearer boundaries."
+            f"Across {years[0]}-{years[-1]}, the topic moves {domain['trend']}, while tying "
+            f"{frame['goal']} to stronger evidence and clearer boundaries."
         )
     else:
         trend = (
-            f"Within the current frontier, the field is shifting from isolated demonstrations toward evidence about when {frame['goal']}."
+            f"Within the current frontier, the field is shifting toward evidence about when {frame['goal']} "
+            f"actually improves {domain['artifact']} quality or utility."
         )
     return {
         "scope_methodology": (
@@ -1065,15 +1136,16 @@ def _literature_review(topic: Dict[str, str], papers: List[Dict[str, Any]], tags
         "consensus": [
             (
                 f"The main body of work is organized around {', '.join(line_names) if line_names else 'representation, action, and evaluation questions'}, "
-                f"with a shared goal to {frame['goal']}."
+                f"with a shared goal to {frame['goal']} in {domain['domain']}."
             ),
             (
-                f"A common pattern is to {frame['pattern']}, rather than treating paper titles or tags as the unit of comparison."
+                f"A common pattern is to {frame['pattern']}, then support the claim with {domain['evidence']}."
             ),
         ],
         "disagreements": [
             (
-                f"The substantive split is between {frame['split']}; those choices change the input-output contract, evidence standard, and failure modes."
+                f"The substantive split is between {domain['split']} and topic-specific choices such as {frame['split']}; "
+                "those choices change the input-output contract, evidence standard, and failure modes."
             ),
             (
                 f"The unresolved boundary is {dominant.get('what_remains_open') or 'whether improvements transfer beyond the reported setup'}; "
@@ -1081,11 +1153,11 @@ def _literature_review(topic: Dict[str, str], papers: List[Dict[str, Any]], tags
             ),
         ],
         "open_questions": [
-            "Which representation choices remain useful when the downstream task, controller, or data distribution changes?",
+            f"Which representation choices remain useful when the downstream task, data distribution, or {domain['artifact']} workflow changes?",
             (
-                f"Do current evaluation protocols measure decision utility directly, or mostly proxy quality signals?"
+                f"Do current evaluation protocols measure downstream utility directly, or mostly proxy quality signals?"
                 if evidence_line
-                else "What shared benchmarks would let the field compare prediction quality, controllability, and decision utility together?"
+                else f"What shared benchmarks would let the field compare {domain['evidence']} together?"
             ),
         ],
         "trend_evolution": trend,
@@ -1094,7 +1166,12 @@ def _literature_review(topic: Dict[str, str], papers: List[Dict[str, Any]], tags
     }
 
 
-def _literature_review_zh(topic: Dict[str, str], papers: List[Dict[str, Any]], tags: List[str]) -> Dict[str, Any]:
+def _literature_review_zh(
+    topic: Dict[str, str],
+    papers: List[Dict[str, Any]],
+    tags: List[str],
+    domain: Dict[str, str],
+) -> Dict[str, Any]:
     matrix = _line_of_work_matrix(topic, papers, zh=True)
     line_names = _line_names(matrix, zh=True)
     dominant = matrix[0] if matrix else {}
@@ -1107,23 +1184,23 @@ def _literature_review_zh(topic: Dict[str, str], papers: List[Dict[str, Any]], t
     label = topic.get("label_zh") or topic.get("label") or topic.get("id")
     years = _year_span(papers)
     if len(years) > 1:
-        trend = f"从 {years[0]} 到 {years[-1]}，研究重心正在从单点主张转向把{frame['goal_zh']}与更强证据和更清晰边界连接起来。"
+        trend = f"从 {years[0]} 到 {years[-1]}，研究重心正在{domain['trend_zh']}，并把{frame['goal_zh']}与更强证据和更清晰边界连接起来。"
     else:
-        trend = f"当前前沿正在从单篇演示转向回答{frame['goal_zh']}在什么条件下真正成立。"
+        trend = f"当前前沿正在转向回答{frame['goal_zh']}在什么条件下真正改善{domain['artifact_zh']}质量或效用。"
     return {
         "范围与方法": f"按研究路线归纳 {len(papers)} 篇{label}相关论文，依据问题设定、建模对象、证据类型和已报告局限识别跨论文模式。",
         "研究路线矩阵": matrix,
         "共识": [
-            f"这个主题的主体由{_join_zh(line_names) if line_names else '若干内容路线'}构成，共同目标是{frame['goal_zh']}。",
-            f"常见范式是{frame['pattern_zh']}，而不是把论文标题或标签当作比较单位。",
+            f"这个主题的主体由{_join_zh(line_names) if line_names else '若干内容路线'}构成，共同目标是在{domain['domain_zh']}中{frame['goal_zh']}。",
+            f"常见范式是{frame['pattern_zh']}，再用{domain['evidence_zh']}支撑主张。",
         ],
         "分歧": [
-            f"论文之间的实质分歧集中在{frame['split_zh']}；这些选择决定输入输出约定、证据标准和失败模式。",
+            f"论文之间的实质分歧集中在{domain['split_zh']}，以及{frame['split_zh']}等主题内选择；这些选择决定输入输出约定、证据标准和失败模式。",
             f"尚未解决的边界包括{dominant.get('尚未覆盖') or '改进能否迁移到报告设置之外'}；{('另一个反复出现的问题是' + str(secondary.get('尚未覆盖'))) if secondary else '不同任务上的证据覆盖仍不均衡'}。",
         ],
         "开放问题": [
-            "当下游任务、控制器或数据分布变化时，哪些表示选择仍然有效？",
-            "现有评测是在直接度量决策效用，还是主要度量视觉质量、预测误差等代理信号？" if evidence_line else "什么样的共享基准能同时比较预测质量、可控性和决策效用？",
+            f"当下游任务、数据分布或{domain['artifact_zh']}工作流变化时，哪些表示选择仍然有效？",
+            "现有评测是在直接度量下游效用，还是主要度量代理质量信号？" if evidence_line else f"什么样的共享基准能同时比较{domain['evidence_zh']}？",
         ],
         "趋势演进": trend,
         "时间线": _timeline(papers),
@@ -1171,26 +1248,23 @@ def _join_zh(items: List[str]) -> str:
     return "、".join(items)
 
 
-def _topic_scope_en(topic: Dict[str, str], tags: List[str]) -> str:
+def _topic_scope_en(topic: Dict[str, str], domain: Dict[str, str]) -> str:
     label = topic.get("label") or topic.get("id") or "this topic"
-    if tags:
-        return f"{label} work around {', '.join(tags[:4])}"
-    return f"{label} work"
+    return f"{label} work in {domain['domain']}"
 
 
-def _topic_scope_zh(topic: Dict[str, str], tags: List[str]) -> str:
+def _topic_scope_zh(topic: Dict[str, str], domain: Dict[str, str]) -> str:
     label = topic.get("label_zh") or topic.get("label") or topic.get("id") or "该主题"
-    if tags:
-        return f"{label}方向中围绕{_join_zh(tags[:4])}的研究"
-    return f"{label}方向的研究"
+    return f"{domain['domain_zh']}中的{label}方向研究"
 
 
 def _year_span(papers: List[Dict[str, Any]]) -> List[int]:
     return sorted({int(paper["year"]) for paper in papers if isinstance(paper.get("year"), int)})
 
 
-def _outline(topic: Dict[str, str], papers: List[Dict[str, Any]], tags: List[str]) -> List[str]:
+def _outline(topic: Dict[str, str], papers: List[Dict[str, Any]], tags: List[str], domain: Dict[str, str]) -> List[str]:
     pairs = _paper_analysis_pairs(papers, limit=6)
+    frame = TOPIC_SYNTHESIS_FRAMES.get(_topic_id(topic), TOPIC_SYNTHESIS_FRAMES["method"])
     if pairs:
         directions = _join_en(
             _field_snippets(pairs, "innovation", limit=3, chars=115)
@@ -1202,20 +1276,18 @@ def _outline(topic: Dict[str, str], papers: List[Dict[str, Any]], tags: List[str
         years = _year_span(papers)
         if len(years) > 1:
             trend = (
-                f"From {years[0]} to {years[-1]}, the center of gravity is moving from isolated model "
-                "claims toward interactive systems, benchmarks, and evidence that can compare across settings"
+                f"From {years[0]} to {years[-1]}, the center of gravity is moving {domain['trend']}"
             )
         else:
             trend = (
-                "Within the current frontier, the shift is from single-paper demonstrations toward reusable "
-                "systems, benchmarked evaluation, and clearer evidence about when a world model improves decisions"
+                f"Within the current frontier, the shift is from single-paper demonstrations toward clearer evidence about when {frame['goal']} improves {domain['artifact']} quality or utility"
             )
         return [
-            f"Mainstream direction: {_topic_scope_en(topic, tags)} is converging on {directions or 'more explicit model representations, control interfaces, and evaluation targets'}.",
-            f"Shared research pattern: the strongest papers combine {methods or 'a concrete modeling choice'} with evidence from {results or 'benchmarks, ablations, and qualitative failure analysis'}.",
-            f"Key differences: papers diverge by emphasis across {', '.join(tags[:5]) if tags else 'modeling target, evaluation setup, and deployment setting'}, so the useful comparison is representation, supervision signal, and decision-time interface rather than title-level novelty.",
+            f"Mainstream direction: {_topic_scope_en(topic, domain)} is converging on {directions or frame['goal']}.",
+            f"Shared research pattern: the strongest papers combine {methods or frame['pattern']} with evidence from {results or domain['evidence']}.",
+            f"Key differences: papers diverge by {domain['split']}; those choices matter more than retrieval tags or title-level novelty.",
             f"Trend evolution: {trend}.",
-            f"Open questions: recurring gaps include {limitations or 'dataset coverage, baseline strength, reproducibility, and whether the model helps closed-loop behavior'}, which should anchor deeper literature-review prose.",
+            f"Open questions: recurring gaps include {limitations or domain['evidence']}, which should anchor deeper literature-review prose.",
         ]
 
     label = topic["label"]
@@ -1229,8 +1301,9 @@ def _outline(topic: Dict[str, str], papers: List[Dict[str, Any]], tags: List[str
     ]
 
 
-def _outline_zh(topic: Dict[str, str], papers: List[Dict[str, Any]], tags: List[str]) -> List[str]:
+def _outline_zh(topic: Dict[str, str], papers: List[Dict[str, Any]], tags: List[str], domain: Dict[str, str]) -> List[str]:
     pairs = _paper_analysis_pairs(papers, zh=True, limit=6)
+    frame = TOPIC_SYNTHESIS_FRAMES.get(_topic_id(topic), TOPIC_SYNTHESIS_FRAMES["method"])
     if pairs:
         directions = _join_zh(
             _field_snippets(pairs, "innovation", limit=3, chars=105)
@@ -1241,17 +1314,15 @@ def _outline_zh(topic: Dict[str, str], papers: List[Dict[str, Any]], tags: List[
         limitations = _join_zh(_field_snippets(pairs, "limitation", limit=3, chars=105))
         years = _year_span(papers)
         if len(years) > 1:
-            trend = (
-                f"从 {years[0]} 到 {years[-1]}，研究重心正在从单点模型主张转向可交互系统、标准化基准和可横向比较的证据"
-            )
+            trend = f"从 {years[0]} 到 {years[-1]}，研究重心正在{domain['trend_zh']}"
         else:
-            trend = "当前前沿正在从单篇演示转向可复用系统、基准化评测，以及更清楚地回答世界模型何时真正改善决策"
+            trend = f"当前前沿正在从单篇演示转向更清楚地回答{frame['goal_zh']}何时真正改善{domain['artifact_zh']}质量或效用"
         return [
-            f"主流方向：{_topic_scope_zh(topic, tags)}正在收敛到{directions or '更明确的模型表示、控制接口和评测目标'}。",
-            f"研究共性：高分论文通常把{methods or '具体的建模选择'}与{results or '基准、消融和失败案例分析'}结合起来，而不是只停留在概念声明。",
-            f"关键差异：论文之间的差异主要体现在{_join_zh(tags[:5]) if tags else '建模对象、评测设置和落地场景'}，因此更值得比较表示方式、监督信号和决策时接口。",
+            f"主流方向：{_topic_scope_zh(topic, domain)}正在收敛到{directions or frame['goal_zh']}。",
+            f"研究共性：高分论文通常把{methods or frame['pattern_zh']}与{results or domain['evidence_zh']}结合起来，而不是只停留在概念声明。",
+            f"关键差异：论文之间的差异主要体现在{domain['split_zh']}；这些内容差异比检索标签或标题级新颖性更值得比较。",
             f"趋势演进：{trend}。",
-            f"开放问题：反复出现的缺口包括{limitations or '数据覆盖、基线强度、可复现性，以及模型是否能改善闭环行为'}，这些应成为后续文献综述的主线。",
+            f"开放问题：反复出现的缺口包括{limitations or domain['evidence_zh']}，这些应成为后续文献综述的主线。",
         ]
 
     label_zh = topic.get("label_zh") or topic["label"]
@@ -1285,6 +1356,7 @@ def build_literature_surveys(
     if not topics:
         topics = _taxonomy_topics(config) or _fallback_topics(papers)
     generated_at = generated_at or _dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    domain = _domain_profile(config)
     topic_jobs = []
     for index, topic in enumerate(topics):
         topic_id = topic["id"]
@@ -1313,12 +1385,12 @@ def build_literature_surveys(
         literature_review = (
             llm_synthesis.get("literature_review")
             if llm_synthesis and isinstance(llm_synthesis.get("literature_review"), dict)
-            else _literature_review(topic, matching, tags)
+            else _literature_review(topic, matching, tags, domain)
         )
         literature_review_zh = (
             llm_synthesis.get("literature_review_zh")
             if llm_synthesis and isinstance(llm_synthesis.get("literature_review_zh"), dict)
-            else _literature_review_zh(topic, matching, tags)
+            else _literature_review_zh(topic, matching, tags, domain)
         )
         return index, {
                 "id": topic_id,
@@ -1330,10 +1402,12 @@ def build_literature_surveys(
                 "top_tags": tags,
                 "component_averages": _component_averages(matching),
                 "top_papers": _top_paper_summary(matching),
-                "related_work_outline": llm_synthesis["outline"] if llm_synthesis else _outline(topic, matching, tags),
-                "related_work_outline_zh": llm_synthesis["outline_zh"] if llm_synthesis else _outline_zh(topic, matching, tags),
+                "related_work_outline": llm_synthesis["outline"] if llm_synthesis else _outline(topic, matching, tags, domain),
+                "related_work_outline_zh": llm_synthesis["outline_zh"] if llm_synthesis else _outline_zh(topic, matching, tags, domain),
                 "literature_review": literature_review,
                 "literature_review_zh": literature_review_zh,
+                "synthesis_status": "llm" if llm_synthesis else "fallback",
+                "generation_notes": [] if llm_synthesis else ["warning_survey_synthesis_fallback"],
             }
 
     survey_results = []
@@ -1392,6 +1466,9 @@ def _merge_llm_synthesis_into_topic(topic_entry: Dict[str, Any], synthesis: Dict
         updated["literature_review"] = synthesis["literature_review"]
     if isinstance(synthesis.get("literature_review_zh"), dict):
         updated["literature_review_zh"] = synthesis["literature_review_zh"]
+    updated["synthesis_status"] = "llm"
+    notes = [str(note) for note in updated.get("generation_notes", []) if str(note)]
+    updated["generation_notes"] = [note for note in notes if note != "warning_survey_synthesis_fallback"]
     return updated
 
 

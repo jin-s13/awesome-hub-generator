@@ -4,9 +4,11 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import yaml
 
 from scripts.build import (
     infer_base_path,
+    literature_surveys_step,
     load_config,
     render_template,
     generate_site,
@@ -110,6 +112,50 @@ class TestAstroTemplate:
         assert survey_page.exists()
         assert "/analysis" in content
         assert "window.location.replace" in content
+
+
+class TestLiteratureSurveysStep:
+    """Test full build also consumes queued survey synthesis jobs."""
+
+    def test_processes_survey_jobs_when_key_is_configured(self, tmp_path, monkeypatch):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        calls = {}
+
+        def fake_build(path, config, use_llm=False, enqueue_llm=False):
+            calls["build"] = (path, config, use_llm, enqueue_llm)
+            (path / "survey_jobs.yaml").write_text(
+                yaml.dump({"jobs": [{"id": "method", "status": "pending"}]}, sort_keys=False),
+                encoding="utf-8",
+            )
+            return 1
+
+        def fake_process(path, config, workers=1):
+            calls["process"] = (path, config, workers)
+            (path / "survey_jobs.yaml").write_text(
+                yaml.dump({"jobs": [{"id": "method", "status": "done"}]}, sort_keys=False),
+                encoding="utf-8",
+            )
+            return 1
+
+        monkeypatch.setenv("ARK_API_KEY", "test-key")
+        monkeypatch.setattr("scripts.literature_survey.build_literature_surveys", fake_build)
+        monkeypatch.setattr("scripts.literature_survey.process_survey_jobs", fake_process)
+
+        literature_surveys_step(data_dir, {"research": {"llm": {"survey_workers": 4}}})
+
+        assert calls["build"][2:] == (False, True)
+        assert calls["process"][2] == 4
+
+    def test_raises_without_key_instead_of_accepting_fallback(self, tmp_path, monkeypatch):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        monkeypatch.delenv("ARK_API_KEY", raising=False)
+        monkeypatch.setattr("scripts.literature_survey.build_literature_surveys", lambda *args, **kwargs: 1)
+
+        with pytest.raises(RuntimeError, match="requires ARK_API_KEY"):
+            literature_surveys_step(data_dir, {"research": {}})
 
     def test_analysis_page_reads_generated_survey_topics(self):
         root = Path(__file__).resolve().parents[1]

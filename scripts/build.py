@@ -361,10 +361,31 @@ def taxonomy_step(data_dir: Path, config: dict) -> None:
 
 def literature_surveys_step(data_dir: Path, config: dict) -> None:
     """Generate taxonomy-driven survey data."""
-    from scripts.literature_survey import build_literature_surveys
+    import yaml
+    from scripts.literature_survey import build_literature_surveys, process_survey_jobs
 
     topics = build_literature_surveys(data_dir, config, use_llm=False, enqueue_llm=True)
     print(f"[build] Literature surveys generated {topics} topics; LLM survey jobs queued")
+    if topics <= 0:
+        return
+    if not os.environ.get("ARK_API_KEY"):
+        raise RuntimeError(
+            "Literature survey synthesis requires ARK_API_KEY; "
+            "fallback survey outlines were generated but are not acceptable as final analysis."
+        )
+    research = config.get("research", {}) if isinstance(config, dict) else {}
+    llm_config = research.get("llm", {}) if isinstance(research.get("llm", {}), dict) else {}
+    workers = int(llm_config.get("survey_workers", llm_config.get("workers", 2)) or 2)
+    processed = process_survey_jobs(data_dir, config, workers=max(1, workers))
+    jobs_doc = yaml.safe_load((data_dir / "survey_jobs.yaml").read_text(encoding="utf-8")) or {}
+    jobs = [job for job in jobs_doc.get("jobs", []) if isinstance(job, dict)]
+    done = sum(1 for job in jobs if job.get("status") == "done")
+    if done < topics:
+        failed = [str(job.get("id") or job.get("topic_id") or "topic") for job in jobs if job.get("status") != "done"]
+        raise RuntimeError(
+            f"Literature survey synthesis incomplete: done {done}/{topics}; unresolved={', '.join(failed[:8])}"
+        )
+    print(f"[build] Literature survey LLM synthesis completed for {done} topics ({processed} processed this run)")
 
 
 def sync_options_from_config(config: dict) -> dict:

@@ -4,11 +4,13 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import yaml
 
 from scripts.update import (
     collect_sources_to_pool,
     fetch_teasers_step,
     interpretation_refresh_step,
+    literature_surveys_step,
     load_config,
     load_papers_yaml,
     promote_candidates,
@@ -222,6 +224,54 @@ class TestTaxonomyStep:
         taxonomy_step({"research": {"taxonomy_discovery": {"enabled": False}}}, data_dir)
 
         assert called is False
+
+
+class TestLiteratureSurveysStep:
+    """Test literature survey LLM synthesis wiring."""
+
+    def test_processes_queued_survey_jobs_when_key_is_configured(self, tmp_path, monkeypatch):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        calls = {}
+
+        def fake_build(path, config, use_llm=False, enqueue_llm=False):
+            calls["build"] = (path, config, use_llm, enqueue_llm)
+            (path / "survey_jobs.yaml").write_text(
+                yaml.dump({"jobs": [{"id": "method", "status": "pending"}]}, sort_keys=False),
+                encoding="utf-8",
+            )
+            return 1
+
+        def fake_process(path, config, workers=1):
+            calls["process"] = (path, config, workers)
+            (path / "survey_jobs.yaml").write_text(
+                yaml.dump({"jobs": [{"id": "method", "status": "done"}]}, sort_keys=False),
+                encoding="utf-8",
+            )
+            return 1
+
+        monkeypatch.setenv("ARK_API_KEY", "test-key")
+        monkeypatch.setattr("scripts.literature_survey.build_literature_surveys", fake_build)
+        monkeypatch.setattr("scripts.literature_survey.process_survey_jobs", fake_process)
+
+        processed = literature_surveys_step({"research": {"llm": {"survey_workers": 3}}}, data_dir)
+
+        assert processed == 1
+        assert calls["build"][2:] == (False, True)
+        assert calls["process"][2] == 3
+
+    def test_raises_when_survey_jobs_are_left_as_fallback_without_key(self, tmp_path, monkeypatch):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        def fake_build(path, config, use_llm=False, enqueue_llm=False):
+            return 1
+
+        monkeypatch.delenv("ARK_API_KEY", raising=False)
+        monkeypatch.setattr("scripts.literature_survey.build_literature_surveys", fake_build)
+
+        with pytest.raises(RuntimeError, match="requires ARK_API_KEY"):
+            literature_surveys_step({"research": {}}, data_dir)
 
 
 class TestCollectSourcesToPool:

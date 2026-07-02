@@ -141,6 +141,8 @@ export type SurveyTopic = {
   related_work_outline_zh?: string[];
   literature_review?: Record<string, unknown>;
   literature_review_zh?: Record<string, unknown>;
+  synthesis_status?: 'llm' | 'fallback' | string;
+  generation_notes?: string[];
 };
 
 export type SurveyIndex = {

@@ -45,6 +45,8 @@ const displayScoreComponents = (topic: (typeof surveyTopics)[number]) => {
 };
 const localizedReview = (topic: (typeof surveyTopics)[number]) =>
   lang === 'zh' && topic.literature_review_zh ? topic.literature_review_zh : topic.literature_review;
+const usesFallbackSynthesis = (topic: (typeof surveyTopics)[number]) =>
+  topic.synthesis_status !== 'llm' || (topic.generation_notes || []).includes('warning_survey_synthesis_fallback');
 const reviewValue = (topic: (typeof surveyTopics)[number], key: keyof typeof reviewKeyMap) => {
   const review = localizedReview(topic);
   if (!review) return undefined;
@@ -96,6 +98,13 @@ const reviewSectionLabels = {
           {localizedReview(topic) ? (
             <div class="survey-review">
               <h3>{lang === 'zh' ? '文献综述归纳' : 'Literature review synthesis'}</h3>
+              {usesFallbackSynthesis(topic) && (
+                <p class="analysis-warning">
+                  {lang === 'zh'
+                    ? 'Warning: 这部分仍是规则 fallback 归纳，尚未完成 LLM 文献综述综合。'
+                    : 'Warning: this section is still rule-based fallback synthesis; LLM literature review synthesis has not completed.'}
+                </p>
+              )}
               {reviewValue(topic, 'scope') && <p class="review-scope">{String(reviewValue(topic, 'scope'))}</p>}
               {objectList(reviewValue(topic, 'lines')).length > 0 && (
                 <section class="review-section review-lines">
@@ -242,6 +251,16 @@ const reviewSectionLabels = {
   }
   .survey-review {
     margin-top: 18px;
+  }
+  .analysis-warning {
+    border: 1px solid #f59e0b;
+    background: #fffbeb;
+    color: #92400e !important;
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin: 0 0 12px;
+    font-size: 13px;
+    font-weight: 600;
   }
   .survey-review h3 {
     font-size: 15px;
