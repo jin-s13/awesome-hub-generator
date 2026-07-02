@@ -471,7 +471,7 @@ def paper_to_yaml(paper: Dict, classification: Dict, source_repo: str = "arxiv")
         "paper_type": paper_type,
         "tags": tags[:8],
         "links": paper.get("links", {}),
-        "preview": "/assets/placeholder.svg",
+        "preview": paper.get("preview") or "/assets/placeholder.svg",
         "sources": paper.get("sources") or [{"repo": source_repo}],
     }
     if isinstance(classification.get("relevant"), bool):

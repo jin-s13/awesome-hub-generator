@@ -88,6 +88,10 @@ def _merge_paper(existing: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str
             score = dict(merged.get("score") or {})
             score.update(value)
             merged["score"] = score
+        elif key == "preview" and merged.get("preview") in (None, "", "/assets/placeholder.svg"):
+            merged["preview"] = value
+        elif key == "authors" and isinstance(value, list) and not merged.get("authors"):
+            merged["authors"] = value
         elif not merged.get(key):
             merged[key] = value
     return merged

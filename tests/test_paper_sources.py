@@ -37,6 +37,79 @@ def test_markdown_list_parser_uses_arxiv_url_year_when_venue_has_typo():
     assert papers[0]["year"] == 2026
 
 
+def test_markdown_table_parser_preserves_upstream_metadata():
+    from scripts.ingest_source import MarkdownTableParser
+
+    readme = """
+| Model | Paper | Authors | Venue | Website | GitHub | Teaser |
+| --- | --- | --- | --- | --- | --- | --- |
+| AutoResearch | [AI for Auto-Research](https://arxiv.org/abs/2605.18661) | Ada Lovelace, Alan Turing | arXiv 2026 | [Project](https://worldbench.github.io/awesome-ai-auto-research/) | [Code](https://github.com/worldbench/awesome-ai-auto-research) | ![teaser](https://example.com/teaser.png) |
+"""
+
+    papers = MarkdownTableParser.parse(readme, "worldbench/awesome-ai-auto-research")
+
+    assert len(papers) == 1
+    assert papers[0]["title"] == "AI for Auto-Research"
+    assert papers[0]["authors"] == ["Ada Lovelace", "Alan Turing"]
+    assert papers[0]["venue"] == "arXiv 2026"
+    assert papers[0]["links"]["paper"] == "https://arxiv.org/abs/2605.18661"
+    assert papers[0]["links"]["project"] == "https://worldbench.github.io/awesome-ai-auto-research/"
+    assert papers[0]["links"]["code"] == "https://github.com/worldbench/awesome-ai-auto-research"
+    assert papers[0]["preview"] == "https://example.com/teaser.png"
+
+
+def test_markdown_list_parser_preserves_inline_teaser_image():
+    from scripts.ingest_source import MarkdownListParser
+
+    readme = (
+        "- [AutoResearch](https://arxiv.org/abs/2605.18661) - "
+        "AI auto-research survey ![teaser](https://example.com/list-teaser.png)"
+    )
+
+    papers = MarkdownListParser.parse(readme, "worldbench/awesome-ai-auto-research")
+
+    assert papers[0]["preview"] == "https://example.com/list-teaser.png"
+
+
+def test_markdown_list_parser_handles_bold_title_badge_links():
+    from scripts.ingest_source import MarkdownListParser
+
+    readme = (
+        "*   **SCIMON : Scientific Inspiration Machines Optimized for Novelty** "
+        "[![arXiv](https://img.shields.io/badge/arXiv-2305.14259-B31B1B.svg)]"
+        "(https://arxiv.org/pdf/2305.14259) - *Wang et al. (2023.05)*"
+    )
+
+    papers = MarkdownListParser.parse(readme, "HKUST-KnowComp/Awesome-LLM-Scientific-Discovery")
+
+    assert len(papers) == 1
+    assert papers[0]["title"] == "SCIMON : Scientific Inspiration Machines Optimized for Novelty"
+    assert papers[0]["links"]["paper"] == "https://arxiv.org/pdf/2305.14259"
+    assert papers[0]["preview"] == "/assets/placeholder.svg"
+
+
+def test_yaml_parser_preserves_authors_preview_and_link_aliases():
+    from scripts.ingest_source import YamlParser
+
+    content = """
+- title: AI for Auto-Research
+  authors: Ada Lovelace and Alan Turing
+  arxiv: https://arxiv.org/abs/2605.18661
+  github: https://github.com/worldbench/awesome-ai-auto-research
+  website: https://worldbench.github.io/awesome-ai-auto-research/
+  teaser: https://example.com/yaml-teaser.png
+  venue: arXiv
+"""
+
+    papers = YamlParser.parse(content, "worldbench/awesome-ai-auto-research")
+
+    assert papers[0]["authors"] == ["Ada Lovelace", "Alan Turing"]
+    assert papers[0]["links"]["paper"] == "https://arxiv.org/abs/2605.18661"
+    assert papers[0]["links"]["code"] == "https://github.com/worldbench/awesome-ai-auto-research"
+    assert papers[0]["links"]["project"] == "https://worldbench.github.io/awesome-ai-auto-research/"
+    assert papers[0]["preview"] == "https://example.com/yaml-teaser.png"
+
+
 def test_sync_papers_preserves_upstream_awesome_metadata(tmp_path):
     from scripts.sync import load_yaml, sync_papers
 
@@ -49,6 +122,7 @@ def test_sync_papers_preserves_upstream_awesome_metadata(tmp_path):
                 "year": 2026,
                 "venue": "ICRA 26",
                 "links": {"paper": "https://arxiv.org/abs/2503.13587"},
+                "preview": "https://example.com/upstream-teaser.png",
                 "sources": [{"repo": "LMD0311/Awesome-World-Model", "category": "Others"}],
             }
         ],
@@ -61,6 +135,7 @@ def test_sync_papers_preserves_upstream_awesome_metadata(tmp_path):
 
     assert added == 1
     assert papers[0]["venue"] == "ICRA 26"
+    assert papers[0]["preview"] == "https://example.com/upstream-teaser.png"
     assert papers[0]["sources"][0]["repo"] == "LMD0311/Awesome-World-Model"
 
 

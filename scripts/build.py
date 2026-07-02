@@ -987,9 +987,33 @@ def main():
     # Step 4: 生成论文解读（TLDR/reasoning/analysis）
     if not args.skip_interpretations:
         try:
-            from generate_interpretations import main as gen_interp
-            print("[build] 生成论文解读...")
-            gen_interp()
+            from refresh_interpretations_parallel import main as refresh_interpretations
+            interp_config = research.get("interpretations", {}) or {}
+            interp_args = [
+                "refresh_interpretations_parallel.py",
+                "--data-dir",
+                str(data_dir),
+                "--config",
+                str(config_path),
+                "--workers",
+                str(int(interp_config.get("workers", 4))),
+                "--checkpoint-interval",
+                str(int(interp_config.get("checkpoint_interval", 5))),
+                "--sleep",
+                str(float(interp_config.get("sleep", 0.0))),
+            ]
+            daily_limit = int(interp_config.get("daily_limit", 0) or 0)
+            if daily_limit > 0:
+                interp_args.extend(["--limit", str(daily_limit)])
+            if bool(interp_config.get("force_analysis", False)):
+                interp_args.append("--force-analysis")
+            old_argv = sys.argv
+            try:
+                sys.argv = interp_args
+                print("[build] 生成论文解读...")
+                refresh_interpretations()
+            finally:
+                sys.argv = old_argv
         except Exception as e:
             print(f"[build] 解读生成失败（非致命）: {e}")
 
