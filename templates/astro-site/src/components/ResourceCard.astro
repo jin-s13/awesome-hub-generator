@@ -10,11 +10,16 @@ const localizedDescription = lang === 'zh' && item.description_zh ? item.descrip
 const title = localizedTitle;
 const subtitle = item.type || item.category || '';
 const meta = [subtitle, item.year].filter(Boolean).join(' · ');
+const starText = typeof item.stars === 'number' && item.stars > 0 ? item.stars.toLocaleString('en-US') : '';
+const rawScore = item.score;
+const sortScore = typeof rawScore === 'number'
+  ? rawScore
+  : (rawScore?.read_first_score ?? rawScore?.total ?? (typeof item.stars === 'number' ? item.stars : 0));
 const linkEntries = Object.entries(item.links || {}).filter(([, value]) => value);
 const primaryHref = linkEntries[0]?.[1] || '#';
 const detailHref = item.id ? localizePath(`/datasets/${item.id}`, lang) : primaryHref;
 const sourceRepos = (item.sources || []).map((s) => s.repo).join(', ');
-const searchText = [item.name, item.name_zh, subtitle, item.year, item.description, item.description_zh, ...(item.tags || []), ...(item.language || []), ...(item.kernel || []), sourceRepos].join(' ').toLowerCase();
+const searchText = [item.name, item.name_zh, subtitle, item.year, item.stars, item.description, item.description_zh, ...(item.tags || []), ...(item.language || []), ...(item.kernel || []), sourceRepos].join(' ').toLowerCase();
 const isPaperLike = mode === "paper";
 const preview = assetPath(item.preview || '/assets/placeholder.svg');
 const linkLabelMap: Record<string, { en: string; zh: string }> = {
@@ -39,7 +44,7 @@ function linkLabel(key: string) {
 }
 ---
 {isPaperLike ? (
-  <article class="paper-card resource-card media-resource-card filter-item" data-search={searchText} data-category={subtitle} data-year={item.year || ''}>
+  <article class="paper-card resource-card media-resource-card filter-item" data-search={searchText} data-category={subtitle} data-year={item.year || ''} data-title={title} data-score={sortScore}>
     <a href={detailHref} class="preview-wrap">
       <img src={preview} alt={`Preview for ${title}`} loading="lazy" />
     </a>
@@ -59,12 +64,13 @@ function linkLabel(key: string) {
     </div>
   </article>
 ) : (
-  <article class="resource-card filter-item" data-search={searchText} data-category={subtitle} data-year={item.year || ''}>
+  <article class="resource-card filter-item" data-search={searchText} data-category={subtitle} data-year={item.year || ''} data-title={title} data-score={sortScore}>
     <div class="resource-head">
       <div>
         {meta && <p class="eyebrow">{meta}</p>}
         <h3>{title}</h3>
       </div>
+      {starText && <span class="score-pill">{starText} {_t('resource.stars')}</span>}
     </div>
     <p>{localizedDescription}</p>
     <div class="tag-row">

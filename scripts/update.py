@@ -136,7 +136,8 @@ def fetch_from_hf(config: dict, search_days: int) -> List[Dict]:
 
 def collect_sources_to_pool(config: dict, pool, search_days: int):
     """Step 1: 从所有数据源收集论文到 candidate 池。"""
-    from scripts.paper_sources import collect_paper_sources
+    from scripts.build import section_enabled
+    from scripts.paper_sources import collect_paper_sources, save_projects_yaml
 
     result = collect_paper_sources(config, search_days=search_days, max_results=200)
     for name, summary in result.get("sources", {}).items():
@@ -151,6 +152,10 @@ def collect_sources_to_pool(config: dict, pool, search_days: int):
     if papers:
         added = pool.add_batch(papers, source="unified-sources")
         logger.info(f"Unified sources: +{added} candidates from {len(papers)} merged papers")
+    if section_enabled(config, "projects") and result.get("projects"):
+        data_dir = Path(os.environ.get("HUB_DATA_DIR", str(SITE_DIR / ".local/data")))
+        total_projects = save_projects_yaml(data_dir, result["projects"])
+        logger.info("GitHub projects indexed: %s", total_projects)
 
 
 # === Step 2: Candidate → 展示池晋升 ===
@@ -587,7 +592,7 @@ def main():
     data_dir.mkdir(parents=True, exist_ok=True)
     assets_dir.mkdir(parents=True, exist_ok=True)
     resource_dir.mkdir(parents=True, exist_ok=True)
-    for empty_file in ("papers.yaml", "resources.yaml", "datasets.yaml", "tools.yaml", "surveys.yaml", "research_runs.yaml", "taxonomy.yaml", "paper_taxonomy.yaml"):
+    for empty_file in ("papers.yaml", "resources.yaml", "datasets.yaml", "projects.yaml", "surveys.yaml", "research_runs.yaml", "taxonomy.yaml", "paper_taxonomy.yaml"):
         f = data_dir / empty_file
         if not f.exists():
             empty = (

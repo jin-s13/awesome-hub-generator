@@ -262,7 +262,7 @@ SECTION_DEFAULTS = {
     "analysis": True,
     "trends": True,
     "datasets": True,
-    "tools": False,
+    "projects": True,
     "resources": False,
 }
 
@@ -278,7 +278,7 @@ def prune_disabled_section_data(data_dir: Path, config: dict) -> None:
     """Clear data files for disabled optional website sections."""
     disabled_files = {
         "datasets": "datasets.yaml",
-        "tools": "tools.yaml",
+        "projects": "projects.yaml",
         "resources": "resources.yaml",
     }
     for section, filename in disabled_files.items():
@@ -398,7 +398,7 @@ def sync_unified_paper_sources(
     search_days: int = None,
 ) -> int:
     """Collect arXiv/HF/upstream/AlphaXiv papers through one source layer."""
-    from scripts.paper_sources import collect_paper_sources
+    from scripts.paper_sources import collect_paper_sources, save_projects_yaml
     import sync
 
     config.setdefault("_runtime", {})["github_cache_path"] = str(data_dir / "github_discovery_cache.json")
@@ -414,6 +414,9 @@ def sync_unified_paper_sources(
             print(f"[build] {name} source failed: {summary['error']}")
         else:
             print(f"[build] {name} source: {summary.get('count', 0)} papers")
+    if section_enabled(config, "projects") and result.get("projects"):
+        total_projects = save_projects_yaml(data_dir, result["projects"])
+        print(f"[build] GitHub projects indexed: {total_projects}")
 
     papers = _syncable_papers(result.get("papers", []))
     if not papers:
@@ -506,7 +509,7 @@ def generate_site(config: dict, output_dir) -> None:
         "GENERATOR_REPO": project.get("generator_repo", "your-username/awesome-hub-generator"),
         "FOOTER_HTML": website.get("footer", "Built with awesome-hub-generator."),
         "ENABLE_DATASETS": str(section_enabled(config, "datasets")).lower(),
-        "ENABLE_TOOLS": str(section_enabled(config, "tools")).lower(),
+        "ENABLE_PROJECTS": str(section_enabled(config, "projects")).lower(),
         "ENABLE_RESOURCES": str(section_enabled(config, "resources")).lower(),
         "ENABLE_TRENDS": str(section_enabled(config, "trends")).lower(),
         "ENABLE_SURVEYS": str(section_enabled(config, "surveys")).lower(),
@@ -525,7 +528,7 @@ def generate_site(config: dict, output_dir) -> None:
     # 确保必要的空数据文件存在（避免构建时 ENOENT）
     data_dir = output_dir / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("papers.yaml", "resources.yaml", "datasets.yaml", "tools.yaml", "surveys.yaml", "research_runs.yaml", "taxonomy.yaml", "paper_taxonomy.yaml"):
+    for name in ("papers.yaml", "resources.yaml", "datasets.yaml", "projects.yaml", "surveys.yaml", "research_runs.yaml", "taxonomy.yaml", "paper_taxonomy.yaml"):
         f = data_dir / name
         if not f.exists():
             empty = (
@@ -545,7 +548,7 @@ def generate_site(config: dict, output_dir) -> None:
 def remove_disabled_section_pages(output_dir: Path, config: dict) -> None:
     """Remove route files for optional sections that are disabled."""
     disabled_pages = {
-        "tools": ["src/pages/[lang]/tools.astro"],
+        "projects": ["src/pages/[lang]/projects.astro"],
         "resources": ["src/pages/[lang]/resources.astro"],
     }
     for section, rel_paths in disabled_pages.items():
@@ -625,21 +628,24 @@ def discover_and_ingest(config: dict, data_dir: Path = None) -> int:
         return 0
 
     from sync import load_yaml, save_yaml, deduplicate
+    from scripts.paper_sources import github_source_to_project
 
     root_data_dir = data_dir
     root_data_dir.mkdir(parents=True, exist_ok=True)
     papers_yaml = root_data_dir / "papers.yaml"
     existing = load_yaml(papers_yaml)
 
-    # 同时提取 datasets/tools
+    # 同时提取 datasets/projects
     datasets_yaml = root_data_dir / "datasets.yaml"
-    tools_yaml = root_data_dir / "tools.yaml"
+    projects_yaml = root_data_dir / "projects.yaml"
     existing_datasets = load_yaml(datasets_yaml) if datasets_yaml.exists() else []
-    existing_tools = load_yaml(tools_yaml) if tools_yaml.exists() else []
+    existing_projects = load_yaml(projects_yaml) if projects_yaml.exists() else []
 
     total_ingested = 0
     for source in sources:
         print(f"\n[build]  处理上游源: {source.full_name}")
+        if section_enabled(config, "projects"):
+            existing_projects.append(github_source_to_project(source))
 
         readme = discoverer.fetch_readme(source)
         if not readme:
@@ -696,29 +702,30 @@ def discover_and_ingest(config: dict, data_dir: Path = None) -> int:
         total_ingested += added
         print(f"[build]    吸纳 {added} 篇新论文 (共 {len(ingested)} 篇解析)")
 
-        # 从上游 README 提取 datasets/tools 线索（按站点 section 开关控制）
-        if section_enabled(config, "datasets") or section_enabled(config, "tools"):
-            ds, tools = _extract_datasets_tools_from_readme(readme, source.full_name)
+        # 从上游 README 提取 datasets/projects 线索（按站点 section 开关控制）
+        if section_enabled(config, "datasets") or section_enabled(config, "projects"):
+            ds, projects = _extract_datasets_projects_from_readme(readme, source.full_name)
             if section_enabled(config, "datasets"):
                 existing_datasets.extend(ds)
-            if section_enabled(config, "tools"):
-                existing_tools.extend(tools)
+            if section_enabled(config, "projects"):
+                existing_projects.extend(projects)
 
     if total_ingested > 0:
         save_yaml(papers_yaml, existing)
-        # 去重保存 datasets/tools
+    if total_ingested > 0 or existing_datasets or existing_projects:
+        # 去重保存 datasets/projects
         _dedupe_and_save(datasets_yaml, existing_datasets, ["name"])
-        _dedupe_and_save(tools_yaml, existing_tools, ["name"])
+        _dedupe_and_save(projects_yaml, existing_projects, ["name"])
 
     print(f"[build] Phase 1 完成，共吸纳 {total_ingested} 篇论文")
     return total_ingested
 
 
-def _extract_datasets_tools_from_readme(readme: str, repo: str):
-    """从上游 README 中简单提取 datasets/tools 线索。"""
+def _extract_datasets_projects_from_readme(readme: str, repo: str):
+    """从上游 README 中简单提取 datasets/projects 线索。"""
     import re
     datasets = []
-    tools = []
+    projects = []
     lines = readme.splitlines()
     section = None
     for line in lines:
@@ -726,8 +733,8 @@ def _extract_datasets_tools_from_readme(readme: str, repo: str):
         if lower.startswith("#"):
             if "dataset" in lower:
                 section = "dataset"
-            elif "tool" in lower or "library" in lower or "software" in lower:
-                section = "tool"
+            elif "project" in lower or "tool" in lower or "library" in lower or "software" in lower:
+                section = "project"
             else:
                 section = None
             continue
@@ -739,8 +746,8 @@ def _extract_datasets_tools_from_readme(readme: str, repo: str):
                 if section == "dataset":
                     datasets.append(item)
                 else:
-                    tools.append(item)
-    return datasets, tools
+                    projects.append(item)
+    return datasets, projects
 
 
 def _dedupe_and_save(path, items, key_fields):
@@ -877,7 +884,7 @@ def main():
     papers_yaml = root_data_dir / "papers.yaml"
 
     # Ensure data files exist
-    for empty_file in ["papers.yaml", "datasets.yaml", "tools.yaml", "resources.yaml", "surveys.yaml", "research_runs.yaml", "taxonomy.yaml", "paper_taxonomy.yaml"]:
+    for empty_file in ["papers.yaml", "datasets.yaml", "projects.yaml", "resources.yaml", "surveys.yaml", "research_runs.yaml", "taxonomy.yaml", "paper_taxonomy.yaml"]:
         ef = root_data_dir / empty_file
         if not ef.exists():
             empty = (
@@ -894,8 +901,6 @@ def main():
             ef.write_text(empty, encoding="utf-8")
 
     if args.render_only:
-        taxonomy_step(data_dir, config)
-        literature_surveys_step(data_dir, config)
         generate_site(config, output_dir)
         copy_runtime_assets(output_dir, data_dir)
         if config_path.exists():

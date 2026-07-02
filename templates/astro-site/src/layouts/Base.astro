@@ -7,7 +7,7 @@ const lang: Lang = _lang || getLang(Astro.url);
 const _t = useTranslations(lang);
 const altLang = alternateLang(lang);
 const showDatasets = {{ENABLE_DATASETS}};
-const showTools = {{ENABLE_TOOLS}};
+const showProjects = {{ENABLE_PROJECTS}};
 const showResources = {{ENABLE_RESOURCES}};
 const showTrends = {{ENABLE_TRENDS}};
 const showSurveys = {{ENABLE_SURVEYS}};
@@ -15,10 +15,10 @@ const showSurveys = {{ENABLE_SURVEYS}};
 const nav = [
   { href: localizePath('/', lang), label: _t('nav.home') },
   { href: localizePath('/papers', lang), label: _t('nav.papers') },
+  showDatasets ? { href: localizePath('/datasets', lang), label: _t('nav.datasets') } : null,
+  showProjects ? { href: localizePath('/projects', lang), label: _t('nav.projects') } : null,
   showSurveys ? { href: localizePath('/analysis', lang), label: _t('nav.analysis') } : null,
   showTrends ? { href: localizePath('/trends', lang), label: _t('nav.trends') } : null,
-  showDatasets ? { href: localizePath('/datasets', lang), label: _t('nav.datasets') } : null,
-  showTools ? { href: localizePath('/tools', lang), label: _t('nav.tools') } : null,
   showResources ? { href: localizePath('/resources', lang), label: _t('nav.resources') } : null,
 ].filter((item): item is { href: string; label: string } => Boolean(item));
 const githubUrl = '{{GITHUB_URL}}';

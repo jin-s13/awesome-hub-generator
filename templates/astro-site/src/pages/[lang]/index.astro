@@ -2,7 +2,7 @@
 import Base from '../../layouts/Base.astro';
 import PaperCard from '../../components/PaperCard.astro';
 import ResourceCard from '../../components/ResourceCard.astro';
-import { getPapers, getDatasets, getTools, getResources, getStats } from '../../lib/data';
+import { getPapers, getDatasets, getProjects, getResources, getStats } from '../../lib/data';
 import { useTranslations } from '../../lib/i18n';
 import { localizePath, type Lang } from '../../lib/lang';
 
@@ -15,11 +15,11 @@ const _t = useTranslations(lang);
 
 const papers = getPapers();
 const datasets = getDatasets();
-const tools = getTools();
+const projects = getProjects();
 const resources = getResources();
 const stats = getStats();
 const showDatasets = {{ENABLE_DATASETS}};
-const showTools = {{ENABLE_TOOLS}};
+const showProjects = {{ENABLE_PROJECTS}};
 const showResources = {{ENABLE_RESOURCES}};
 const featured = papers
   .sort((a, b) => (b.score?.read_first_score ?? b.score?.total ?? 0) - (a.score?.read_first_score ?? a.score?.total ?? 0))
@@ -33,15 +33,15 @@ const featured = papers
       <p set:html={_t('hero.description')}></p>
       <div class="hero-actions">
         <a class="button primary" href={localizePath('/papers', lang)}>{_t('hero.explorePapers')}</a>
-        {showTools && <a class="button" href={localizePath('/tools', lang)}>{_t('hero.browseTools')}</a>}
-        {!showTools && showDatasets && <a class="button" href={localizePath('/datasets', lang)}>{_t('nav.datasets')}</a>}
+        {showProjects && <a class="button" href={localizePath('/projects', lang)}>{_t('hero.browseProjects')}</a>}
+        {!showProjects && showDatasets && <a class="button" href={localizePath('/datasets', lang)}>{_t('nav.datasets')}</a>}
       </div>
     </div>
     <div class="hero-panel">
       <div class="stat-grid">
         <div><strong>{stats.papers}</strong><span>{_t('stat.papers')}</span></div>
         {showDatasets && <div><strong>{stats.datasets}</strong><span>{_t('stat.datasets')}</span></div>}
-        {showTools && <div><strong>{stats.tools}</strong><span>{_t('stat.tools')}</span></div>}
+        {showProjects && <div><strong>{stats.projects}</strong><span>{_t('stat.projects')}</span></div>}
         {showResources && <div><strong>{stats.resources}</strong><span>{_t('stat.resources')}</span></div>}
         <div><strong>{stats.sources}</strong><span>{_t('stat.sources')}</span></div>
       </div>
@@ -73,16 +73,16 @@ const featured = papers
     </div>
   </section>}
 
-  {showTools && <section>
+  {showProjects && <section>
     <section class="section-head compact-head">
       <div>
-        <p class="eyebrow">{_t('section.tools')}</p>
+        <p class="eyebrow">{_t('section.projects')}</p>
         <h2>{_t('section.openSourceStack')}</h2>
       </div>
-      <a href={localizePath('/tools', lang)}>{_t('section.viewAllTools')}</a>
+      <a href={localizePath('/projects', lang)}>{_t('section.viewAllProjects')}</a>
     </section>
     <div class="stack-list">
-      {tools.slice(0, 3).map((item) => <ResourceCard item={item} lang={lang} />)}
+      {projects.slice(0, 3).map((item) => <ResourceCard item={item} lang={lang} />)}
     </div>
   </section>}
 </Base>

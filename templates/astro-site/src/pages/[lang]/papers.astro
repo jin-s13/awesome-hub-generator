@@ -16,6 +16,11 @@ const _t = useTranslations(lang);
 const papers = getPapers();
 const categories = uniq(papers.flatMap((p) => paperTypeList(p))).sort();
 const years = uniq(papers.map((p) => p.year)).sort((a, b) => b - a);
+const sortOptions = [
+  { value: 'score', label: _t('filter.sortScore') },
+  { value: 'year', label: _t('filter.sortYear') },
+  { value: 'alpha', label: _t('filter.sortAlpha') },
+];
 ---
 <Base title={`${_t('pages.papers.title')} · {{PROJECT_NAME}}`} lang={lang}>
   <section class="page-title">
@@ -23,6 +28,6 @@ const years = uniq(papers.map((p) => p.year)).sort((a, b) => b - a);
     <h1>{_t('pages.papers.title')}</h1>
     <p>{_t('pages.papers.description')}</p>
   </section>
-  <FilterBar categories={categories} years={years} lang={lang} />
+  <FilterBar categories={categories} years={years} sortOptions={sortOptions} lang={lang} />
   <ProgressivePaperGrid papers={papers} lang={lang} />
 </Base>

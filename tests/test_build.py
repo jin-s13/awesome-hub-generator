@@ -222,26 +222,87 @@ class TestAstroTemplate:
         assert "item.name_zh" in resource_card
         assert "item.description_zh" in resource_card
 
-    def test_tools_and_resources_sections_default_off(self):
+    def test_projects_section_defaults_on_and_resources_default_off(self):
         config = {"website": {"sections": {"papers": True, "datasets": True}}}
 
         assert section_enabled(config, "papers") is True
         assert section_enabled(config, "datasets") is True
-        assert section_enabled(config, "tools") is False
+        assert section_enabled(config, "projects") is True
         assert section_enabled(config, "resources") is False
 
     def test_generate_site_removes_disabled_optional_pages(self, tmp_path):
         config = {
             "project": {"name": "Test Hub", "description": "Test", "site_url": "https://example.com/test"},
-            "website": {"sections": {"papers": True, "datasets": True, "tools": False, "resources": False}},
+            "website": {"sections": {"papers": True, "datasets": True, "projects": False, "resources": False}},
         }
 
         generate_site(config, tmp_path)
 
-        assert not (tmp_path / "src/pages/[lang]/tools.astro").exists()
+        assert not (tmp_path / "src/pages/[lang]/projects.astro").exists()
         assert not (tmp_path / "src/pages/[lang]/resources.astro").exists()
         assert (tmp_path / "src/pages/[lang]/papers.astro").exists()
         assert (tmp_path / "src/pages/[lang]/datasets.astro").exists()
+
+    def test_projects_page_is_the_only_project_navigation_route(self):
+        root = Path(__file__).resolve().parents[1]
+        base = (root / "templates/astro-site/src/layouts/Base.astro").read_text(encoding="utf-8")
+        index_page = (root / "templates/astro-site/src/pages/[lang]/index.astro").read_text(encoding="utf-8")
+        projects_page = root / "templates/astro-site/src/pages/[lang]/projects.astro"
+        removed_page = root / "templates/astro-site/src/pages/[lang]/tools.astro"
+        i18n = (root / "templates/astro-site/src/lib/i18n.ts").read_text(encoding="utf-8")
+
+        assert projects_page.exists()
+        assert not removed_page.exists()
+        assert "localizePath('/projects', lang)" in base
+        assert "localizePath('/projects', lang)" in index_page
+        assert "localizePath('/tools', lang)" not in base
+        assert "localizePath('/tools', lang)" not in index_page
+        assert "'pages.projects.title': { en: 'Projects'" in i18n
+
+    def test_index_pages_expose_domain_specific_sorting(self):
+        root = Path(__file__).resolve().parents[1]
+        papers_page = (root / "templates/astro-site/src/pages/[lang]/papers.astro").read_text(encoding="utf-8")
+        datasets_page = (root / "templates/astro-site/src/pages/[lang]/datasets.astro").read_text(encoding="utf-8")
+        projects_page = (root / "templates/astro-site/src/pages/[lang]/projects.astro").read_text(encoding="utf-8")
+        filter_bar = (root / "templates/astro-site/src/components/FilterBar.astro").read_text(encoding="utf-8")
+        paper_grid = (root / "templates/astro-site/src/components/ProgressivePaperGrid.astro").read_text(encoding="utf-8")
+        resource_card = (root / "templates/astro-site/src/components/ResourceCard.astro").read_text(encoding="utf-8")
+        data_lib = (root / "templates/astro-site/src/lib/data.ts").read_text(encoding="utf-8")
+        i18n = (root / "templates/astro-site/src/lib/i18n.ts").read_text(encoding="utf-8")
+
+        assert "filter.sortScore" in papers_page
+        assert "filter.sortYear" in papers_page
+        assert "sortPapers" in paper_grid
+        assert "scoreValue(b.score) - scoreValue(a.score)" in data_lib
+        assert "filter.sortScore" in datasets_page
+        assert "data-sort-container" in datasets_page
+        assert "related_papers" in data_lib
+        assert "sortOptions" in projects_page
+        assert "filter.sortStars" in projects_page
+        assert "filter.sortAlpha" in projects_page
+        assert "data-sort-container" in projects_page
+        assert "sortSelect" in filter_bar
+        assert "sortItems" in filter_bar
+        assert "hub-filter-change" in filter_bar
+        assert "data-score={sortScore}" in resource_card
+        assert "data-title={title}" in resource_card
+        assert "'filter.sort':" in i18n
+        assert "'filter.sortStars':" in i18n
+
+    def test_navigation_orders_content_before_analysis_sections(self):
+        root = Path(__file__).resolve().parents[1]
+        base = (root / "templates/astro-site/src/layouts/Base.astro").read_text(encoding="utf-8")
+        expected_order = [
+            "nav.home",
+            "nav.papers",
+            "nav.datasets",
+            "nav.projects",
+            "nav.analysis",
+            "nav.trends",
+        ]
+
+        positions = [base.index(f"_t('{key}')") for key in expected_order]
+        assert positions == sorted(positions)
 
     def test_daily_update_workflow_template_is_configured_for_world_model_hub(self):
         root = Path(__file__).resolve().parents[1]
@@ -322,18 +383,18 @@ class TestGenerateReadmeWithTable:
 class TestSectionDataPruning:
     """Test website section switches affect generated data files."""
 
-    def test_clears_disabled_tools_and_resources_but_keeps_datasets(self, tmp_path):
+    def test_clears_disabled_projects_and_resources_but_keeps_datasets(self, tmp_path):
         data_dir = tmp_path / "data"
         data_dir.mkdir()
         (data_dir / "datasets.yaml").write_text("- name: Dataset\n", encoding="utf-8")
-        (data_dir / "tools.yaml").write_text("- name: Bad Tool\n", encoding="utf-8")
+        (data_dir / "projects.yaml").write_text("- name: Bad Project\n", encoding="utf-8")
         (data_dir / "resources.yaml").write_text("- name: Bad Resource\n", encoding="utf-8")
 
         config = {
             "website": {
                 "sections": {
                     "datasets": True,
-                    "tools": False,
+                    "projects": False,
                     "resources": False,
                 }
             }
@@ -342,7 +403,7 @@ class TestSectionDataPruning:
         prune_disabled_section_data(data_dir, config)
 
         assert (data_dir / "datasets.yaml").read_text(encoding="utf-8") == "- name: Dataset\n"
-        assert (data_dir / "tools.yaml").read_text(encoding="utf-8") == "[]\n"
+        assert (data_dir / "projects.yaml").read_text(encoding="utf-8") == "[]\n"
         assert (data_dir / "resources.yaml").read_text(encoding="utf-8") == "[]\n"
 
 

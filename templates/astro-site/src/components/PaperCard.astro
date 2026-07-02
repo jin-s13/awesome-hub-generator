@@ -46,7 +46,7 @@ const scoreLevel = score != null
 
 const detailUrl = localizePath(`/papers/${paper.id}`, lang);
 ---
-<article class="paper-card filter-item" data-search={searchText} data-category={paperTypeFilterValue(paper)} data-year={paper.year}>
+<article class="paper-card filter-item" data-search={searchText} data-category={paperTypeFilterValue(paper)} data-year={paper.year} data-title={displayTitle} data-score={score ?? 0}>
   <a href={detailUrl} class="preview-wrap">
     <img src={assetPath(paper.preview || '/assets/placeholder.svg')} alt={`Preview for ${paper.title}`} loading="lazy" />
   </a>

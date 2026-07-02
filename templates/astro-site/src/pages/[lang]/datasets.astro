@@ -15,6 +15,11 @@ const _t = useTranslations(lang);
 
 const datasets = getDatasets();
 const years = uniq(datasets.map((d) => d.year).filter(Boolean) as number[]).sort((a, b) => b - a);
+const sortOptions = [
+  { value: 'score', label: _t('filter.sortScore') },
+  { value: 'year', label: _t('filter.sortYear') },
+  { value: 'alpha', label: _t('filter.sortAlpha') },
+];
 ---
 <Base title={`${_t('pages.datasets.title')} · {{PROJECT_NAME}}`} lang={lang}>
   <section class="page-title">
@@ -22,8 +27,8 @@ const years = uniq(datasets.map((d) => d.year).filter(Boolean) as number[]).sort
     <h1>{_t('pages.datasets.title')}</h1>
     <p>{_t('pages.datasets.description')}</p>
   </section>
-  <FilterBar years={years} placeholder={_t('filter.search') + ' by dataset, representation, task, source...'} lang={lang} />
-  <div class="card-grid resource-grid">
+  <FilterBar years={years} placeholder={_t('filter.search') + ' by dataset, representation, task, source...'} sortOptions={sortOptions} lang={lang} />
+  <div class="card-grid resource-grid" data-sort-container>
     {datasets.map((item) => <ResourceCard item={item} mode="paper" lang={lang} />)}
   </div>
 </Base>

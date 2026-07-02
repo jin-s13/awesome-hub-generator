@@ -70,6 +70,17 @@ def start_dev_server(
     return int(completed.returncode or 0)
 
 
+def ensure_node_dependencies(website_dir: Path, *, run: Run = subprocess.run) -> None:
+    """Install website dependencies when render-only regenerated the site."""
+    astro_bin = website_dir / "node_modules" / ".bin" / "astro"
+    if astro_bin.exists():
+        return
+    if not (website_dir / "package-lock.json").exists():
+        raise FileNotFoundError(f"package-lock.json not found in {website_dir}")
+    print(f"[serve-hub] installing website dependencies in {website_dir}")
+    run(["npm", "ci"], cwd=str(website_dir), check=True)
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="同步本地 hub 后启动 Astro dev server")
     parser.add_argument("--hub", required=True, help="本地 hub 名称，如 awesome-world-model-hub")
@@ -101,9 +112,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     env.setdefault("HUB_RESOURCE_DIR", str(hub_dir / "resource"))
     env.setdefault("HUB_CONFIG_PATH", str(hub_dir / "awesome.yaml"))
     os.environ.update(env)
-    return start_dev_server(hub_dir / "website", host=args.host, port=args.port)
+    website_dir = hub_dir / "website"
+    try:
+        ensure_node_dependencies(website_dir)
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        print(f"[serve-hub] dependency install failed: {exc}", file=sys.stderr)
+        return 1
+    return start_dev_server(website_dir, host=args.host, port=args.port)
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

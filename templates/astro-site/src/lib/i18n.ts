@@ -13,25 +13,25 @@ const translations: Record<string, Record<Lang, string>> = {
   'nav.surveys': { en: 'Analysis', zh: '分析' },
   'nav.trends': { en: 'Trends', zh: '趋势' },
   'nav.datasets': { en: 'Datasets', zh: '数据集' },
-  'nav.tools': { en: 'Tools', zh: '工具' },
+  'nav.projects': { en: 'Projects', zh: '项目' },
   'nav.resources': { en: 'Resources', zh: '资源' },
-  'brand.subtitle': { en: 'Papers · Datasets · Tools', zh: '论文 · 数据集 · 工具' },
+  'brand.subtitle': { en: 'Papers · Datasets · Projects', zh: '论文 · 数据集 · 项目' },
   'nav.github': { en: 'GitHub', zh: 'GitHub' },
 
   // index.astro - Hero
-  'hero.eyebrow': { en: 'Research papers, datasets, and open-source tooling', zh: '研究论文、数据集与开源工具' },
+  'hero.eyebrow': { en: 'Research papers, datasets, and open-source projects', zh: '研究论文、数据集与开源项目' },
   'hero.description': {
     en: 'Automatically curated from research paper sources. Built with <a href="https://github.com/{{GENERATOR_REPO}}">awesome-hub-generator</a>.',
     zh: '自动从多来源研究论文中精选。基于 <a href="https://github.com/{{GENERATOR_REPO}}">awesome-hub-generator</a> 构建。',
   },
   'hero.explorePapers': { en: 'Explore papers', zh: '浏览论文' },
-  'hero.browseTools': { en: 'Browse tools', zh: '浏览工具' },
+  'hero.browseProjects': { en: 'Browse projects', zh: '浏览项目' },
   'hero.categories': { en: 'Categories:', zh: '分类：' },
 
   // index.astro - Stats
   'stat.papers': { en: 'Papers', zh: '论文' },
   'stat.datasets': { en: 'Datasets', zh: '数据集' },
-  'stat.tools': { en: 'Tools', zh: '工具' },
+  'stat.projects': { en: 'Projects', zh: '项目' },
   'stat.resources': { en: 'Resources', zh: '资源' },
   'stat.sources': { en: 'Sources', zh: '来源' },
 
@@ -42,9 +42,9 @@ const translations: Record<string, Record<Lang, string>> = {
   'section.datasets': { en: 'Datasets', zh: '数据集' },
   'section.datasetZoo': { en: 'Dataset zoo', zh: '数据集大全' },
   'section.viewAllDatasets': { en: 'View all →', zh: '查看全部 →' },
-  'section.tools': { en: 'Tools', zh: '工具' },
-  'section.openSourceStack': { en: 'Open-source stack', zh: '开源技术栈' },
-  'section.viewAllTools': { en: 'View all →', zh: '查看全部 →' },
+  'section.projects': { en: 'Projects', zh: '项目' },
+  'section.openSourceStack': { en: 'GitHub projects', zh: 'GitHub 项目' },
+  'section.viewAllProjects': { en: 'View all projects →', zh: '查看全部项目 →' },
 
   // papers.astro
   'pages.papers.eyebrow': { en: 'Research index', zh: '研究索引' },
@@ -84,12 +84,12 @@ const translations: Record<string, Record<Lang, string>> = {
   'dataset.provenanceUnknown': { en: 'Source metadata is not available.', zh: '暂无明确来源元数据。' },
   'dataset.relatedPapers': { en: 'Related papers', zh: '关联论文' },
 
-  // tools.astro
-  'pages.tools.eyebrow': { en: 'Open-source stack', zh: '开源技术栈' },
-  'pages.tools.title': { en: 'Tools', zh: '工具' },
-  'pages.tools.description': {
-    en: 'Open-source software, frameworks, kernels, viewers, parsers, and AI-assisted tools.',
-    zh: '开源软件、框架、内核、查看器、解析器及 AI 辅助工具。',
+  // projects.astro
+  'pages.projects.eyebrow': { en: 'GitHub project index', zh: 'GitHub 项目索引' },
+  'pages.projects.title': { en: 'Projects', zh: '项目' },
+  'pages.projects.description': {
+    en: 'Relevant GitHub projects discovered from upstream awesome lists and repository search. Some map to papers, while others are high-star implementation, dataset, or infrastructure projects.',
+    zh: '从上游 awesome 列表和 GitHub 搜索中发现的相关项目。有些对应论文，有些是高星实现、数据或基础设施项目。',
   },
 
   // trends.astro
@@ -142,12 +142,18 @@ const translations: Record<string, Record<Lang, string>> = {
   'filter.year': { en: 'Year', zh: '年份' },
   'filter.allCategories': { en: 'All categories', zh: '全部分类' },
   'filter.allYears': { en: 'All years', zh: '全部年份' },
+  'filter.sort': { en: 'Sort', zh: '排序' },
+  'filter.sortScore': { en: 'Score', zh: '分数' },
+  'filter.sortStars': { en: 'Stars', zh: '星标' },
+  'filter.sortYear': { en: 'Year', zh: '年份' },
+  'filter.sortAlpha': { en: 'A-Z', zh: '首字母' },
   'filter.reset': { en: 'Reset', zh: '重置' },
   'filter.resultCount': { en: '{0} / {1} shown', zh: '显示 {0} / {1}' },
 
   // ResourceCard.astro
   'resource.language': { en: 'Language:', zh: '语言：' },
   'resource.kernel': { en: 'Kernel:', zh: '内核：' },
+  'resource.stars': { en: 'stars', zh: '星标' },
 };
 
 export function t(key: string, lang: Lang, ...args: (string | number)[]): string {

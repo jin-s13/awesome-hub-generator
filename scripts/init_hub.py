@@ -122,7 +122,7 @@ def init_hub(name: str, title: str = "", description: str = "", force: bool = Fa
     for subdir in ("data", "assets/papers", "resource", "website"):
         (hub_dir / subdir).mkdir(parents=True, exist_ok=True)
 
-    for name_ in ("papers.yaml", "resources.yaml", "datasets.yaml", "tools.yaml"):
+    for name_ in ("papers.yaml", "resources.yaml", "datasets.yaml", "projects.yaml"):
         data_file = hub_dir / "data" / name_
         if not data_file.exists():
             data_file.write_text("[]\n", encoding="utf-8")

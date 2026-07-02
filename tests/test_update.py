@@ -261,6 +261,41 @@ class TestCollectSourcesToPool:
             )
         ]
 
+    def test_writes_discovered_github_projects_to_projects_yaml(self, tmp_path, monkeypatch):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        monkeypatch.setenv("HUB_DATA_DIR", str(data_dir))
+
+        def fake_collect(config, search_days=None, max_results=500):
+            return {
+                "papers": [],
+                "projects": [
+                    {
+                        "name": "awesome-cad",
+                        "description": "CAD projects",
+                        "stars": 1000,
+                        "links": {"github": "https://github.com/owner/awesome-cad"},
+                        "sources": [{"repo": "owner/awesome-cad", "category": "github_project"}],
+                    }
+                ],
+                "sources": {"awesome": {"enabled": True, "count": 0}},
+            }
+
+        class FakePool:
+            def add_batch(self, papers, source="unknown"):
+                raise AssertionError("no paper candidates should be added")
+
+        monkeypatch.setattr("scripts.paper_sources.collect_paper_sources", fake_collect)
+
+        collect_sources_to_pool(
+            {"website": {"sections": {"projects": True}}, "research": {"sources": {"upstream_awesome": True}}},
+            FakePool(),
+            search_days=14,
+        )
+
+        assert "awesome-cad" in (data_dir / "projects.yaml").read_text(encoding="utf-8")
+        assert "1000" in (data_dir / "projects.yaml").read_text(encoding="utf-8")
+
 
 class TestSeedReferenceFiltering:
     """Test stricter filtering for noisy Semantic Scholar references."""

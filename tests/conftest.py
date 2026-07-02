@@ -62,7 +62,7 @@ website:
   sections:
     papers: true
     datasets: true
-    tools: true
+    projects: true
   nav:
     - label: "Home"
       href: "/"

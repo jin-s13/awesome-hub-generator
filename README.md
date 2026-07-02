@@ -1,5 +1,9 @@
 # awesome-hub-generator
 
+<p align="center">
+  <a href="https://github.com/sindresorhus/awesome"><img alt="Awesome" src="https://awesome.re/badge.svg"></a>
+</p>
+
 > 告诉它你的研究方向，它自动帮你建一个 awesome 页面，每天更新。
 
 **awesome-hub-generator** 是一个端到端的 awesome 页面生成器**工具**。你只需要配置研究方向关键词，它就会：
@@ -29,7 +33,7 @@ python scripts/init_hub.py --name awesome-cad-hub --title "Awesome CAD Hub"
 ```yaml
 project:
   name: "Awesome CAD Hub"
-  description: "A curated hub for CAD papers, datasets, tools, and Neural CAD research."
+  description: "A curated hub for CAD papers, datasets, projects, and Neural CAD research."
   site_url: "https://your-username.github.io/awesome-cad-hub"
 
 research:
@@ -123,7 +127,7 @@ workflow 默认每天 UTC 00:00 运行，即北京时间 08:00。下游仓库模
 | 论文详情 | `/papers/[id]` | TLDR、关键词评分条形图、深度分析、资源链接 |
 | 趋势 | `/trends` | 关键词评分趋势、标签频率 Top 30、年份分布 |
 | 数据集 | `/datasets` | 数据集列表 |
-| 工具 | `/tools` | 工具列表 |
+| 项目 | `/projects` | GitHub 项目列表 |
 
 ## 项目结构
 
@@ -214,9 +218,9 @@ awesome-cad-hub/                    ← 下游站点仓库（独立部署）
 
 编辑 `templates/astro-site/public/styles/global.css` 中的 CSS 变量。
 
-### 添加 datasets 和 tools
+### 添加 datasets 和 projects
 
-除了自动生成的论文，你还可以在站点工作区的 `data/datasets.yaml` 和 `data/tools.yaml` 中手动维护数据集和工具列表。下游站点仓库中默认是 `.local/data/...`；直接在生成器仓库根目录运行时默认是 `.local/{project-slug}/data/...`。注意 `.local/` 已 gitignore，如需持久化请通过 `awesome.yaml` 的 `auto_discover` 和 `research.datasets` 配置自动发现上游项目。
+除了自动生成的论文，你还可以在站点工作区的 `data/datasets.yaml` 和 `data/projects.yaml` 中手动维护数据集和 GitHub 项目列表。下游站点仓库中默认是 `.local/data/...`；直接在生成器仓库根目录运行时默认是 `.local/{project-slug}/data/...`。注意 `.local/` 已 gitignore，如需持久化请通过 `awesome.yaml` 的 `auto_discover`、`research.upstream_awesome` 和 `research.datasets` 配置自动发现上游项目。
 
 `datasets.yaml` 会自动合并三类来源：Hugging Face Datasets 关键词检索、上游 awesome README 的 dataset section、以及 `papers.yaml` 中被分类为 `benchmark` 或明确提到 dataset 的论文。手动已有条目会优先保留，自动条目按名称和链接去重。
 

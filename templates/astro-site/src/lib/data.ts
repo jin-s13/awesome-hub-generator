@@ -68,6 +68,7 @@ export type Paper = {
   output_modalities?: string[];
   links: LinkMap;
   preview?: string;
+  stars?: number;
   sources: SourceRef[];
   notes?: string;
   score?: ScoreInfo;
@@ -103,6 +104,8 @@ export type Resource = {
   tags: string[];
   links: LinkMap;
   preview?: string;
+  stars?: number;
+  score?: number | ScoreInfo;
   sources: SourceRef[];
   notes?: string;
   notes_zh?: string;
@@ -183,8 +186,17 @@ function loadYamlObject<T>(relativePath: string, fallback: T): T {
   return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as T : fallback;
 }
 
+function scoreValue(score: ScoreInfo | number | undefined): number {
+  if (typeof score === 'number') return score;
+  return score?.read_first_score ?? score?.total ?? 0;
+}
+
+function resourceScoreValue(resource: Resource): number {
+  return scoreValue(resource.score) || resource.stars || 0;
+}
+
 export function getPapers(): Paper[] {
-  return loadYaml<Paper>('data/papers.yaml').sort((a, b) => b.year - a.year || a.title.localeCompare(b.title));
+  return loadYaml<Paper>('data/papers.yaml').sort((a, b) => scoreValue(b.score) - scoreValue(a.score) || b.year - a.year || a.title.localeCompare(b.title));
 }
 
 export function getPaper(id: string): Paper | undefined {
@@ -209,15 +221,25 @@ export function paperTypeFilterValue(paper: Paper): string {
 }
 
 export function getDatasets(): Resource[] {
-  return loadYaml<Resource>('data/datasets.yaml').sort((a, b) => (b.year || 0) - (a.year || 0) || a.name.localeCompare(b.name));
+  const papersById = new Map(getPapers().map((paper) => [paper.id, paper]));
+  return loadYaml<Resource>('data/datasets.yaml')
+    .map((dataset) => {
+      if (dataset.score != null) return dataset;
+      const relatedPaper = (dataset.related_papers || [])
+        .map((ref) => ref.id ? papersById.get(ref.id) : undefined)
+        .find(Boolean);
+      const score = scoreValue(relatedPaper?.score);
+      return score > 0 ? { ...dataset, score } : dataset;
+    })
+    .sort((a, b) => resourceScoreValue(b) - resourceScoreValue(a) || (b.stars || 0) - (a.stars || 0) || (b.year || 0) - (a.year || 0) || a.name.localeCompare(b.name));
 }
 
 export function getDataset(id: string): Resource | undefined {
   return getDatasets().find((d) => d.id === id);
 }
 
-export function getTools(): Resource[] {
-  return loadYaml<Resource>('data/tools.yaml').sort((a, b) => (a.type || '').localeCompare(b.type || '') || a.name.localeCompare(b.name));
+export function getProjects(): Resource[] {
+  return loadYaml<Resource>('data/projects.yaml').sort((a, b) => (b.stars || 0) - (a.stars || 0) || (a.type || '').localeCompare(b.type || '') || a.name.localeCompare(b.name));
 }
 
 export function getResources(): Resource[] {
@@ -241,7 +263,7 @@ export function uniq<T>(arr: T[]): T[] {
 export function getStats() {
   const papers = getPapers();
   const datasets = getDatasets();
-  const tools = getTools();
+  const projects = getProjects();
   let resources: Resource[] = [];
   try {
     resources = getResources();
@@ -251,9 +273,9 @@ export function getStats() {
   return {
     papers: papers.length,
     datasets: datasets.length,
-    tools: tools.length,
+    projects: projects.length,
     resources: resources.length,
-    sources: uniq([...papers, ...datasets, ...tools, ...resources].flatMap((x: any) => (x.sources || []).map((s: SourceRef) => s.repo))).length,
+    sources: uniq([...papers, ...datasets, ...projects, ...resources].flatMap((x: any) => (x.sources || []).map((s: SourceRef) => s.repo))).length,
     years: uniq(papers.map((p) => p.year)).sort((a, b) => b - a),
     categories: uniq(papers.flatMap((p) => paperTypeList(p))).sort()
   };

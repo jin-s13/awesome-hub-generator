@@ -22,6 +22,8 @@ def test_render_readme_links_web_ui_awesome_list_and_generator(tmp_path):
 
     assert "# Awesome Test Hub" in readme
     assert "[中文 Web UI](https://example.com/test/zh/)" in readme
+    assert "[Awesome](https://github.com/sindresorhus/awesome)" in readme
+    assert "https://awesome.re/badge.svg" in readme
     assert "[Traditional Awesome List](./AWESOME.md)" in readme
     assert "[Generator](https://github.com/jin-s13/awesome-hub-generator)" in readme
     assert "main:data/" in readme
