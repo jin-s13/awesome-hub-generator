@@ -21,7 +21,7 @@ import sys
 import time
 import zipfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
@@ -116,6 +116,52 @@ def _extract_arxiv_id(url: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
+def _extract_openreview_id(url: str) -> Optional[str]:
+    """Extract an OpenReview note ID from common forum/pdf/attachment URLs."""
+    m = re.search(r"openreview\.net/(?:forum|pdf|attachment)\?[^#]*\bid=([^&#]+)", url)
+    return m.group(1) if m else None
+
+
+def _is_direct_pdf_url(url: str) -> bool:
+    """Return True when the URL is already a likely downloadable PDF."""
+    return bool(url) and url.split("?", 1)[0].lower().endswith(".pdf")
+
+
+def _pdf_candidates_from_landing_page(url: str) -> List[str]:
+    """Derive likely PDF URLs from known conference landing-page URL patterns."""
+    if not isinstance(url, str) or not url:
+        return []
+
+    candidates: List[str] = []
+
+    # CVF openaccess uses /html/<paper>.html for landing pages and /papers/<paper>.pdf for PDFs.
+    if "openaccess.thecvf.com/content/" in url and "/html/" in url and url.endswith(".html"):
+        candidates.append(url.replace("/html/", "/papers/").removesuffix(".html") + ".pdf")
+
+    # NeurIPS abstract pages can be converted from:
+    # .../hash/<hash>-Abstract-Conference.html
+    # to:
+    # .../file/<hash>-Paper-Conference.pdf
+    m = re.match(r"(.*/paper_files/paper/\d{4})/hash/([A-Za-z0-9]+)-Abstract-Conference\.html$", url)
+    if m:
+        candidates.append(f"{m.group(1)}/file/{m.group(2)}-Paper-Conference.pdf")
+
+    return candidates
+
+
+def _candidate_pdf_urls(links: Dict[str, Any]) -> List[str]:
+    """Collect explicit PDF links before falling back to paper landing pages."""
+    urls: List[str] = []
+    for key in ("pdf", "paper", "url"):
+        value = links.get(key)
+        if isinstance(value, str) and _is_direct_pdf_url(value):
+            urls.append(value)
+        elif isinstance(value, str):
+            urls.extend(_pdf_candidates_from_landing_page(value))
+    # Preserve order while removing duplicates.
+    return list(dict.fromkeys(urls))
+
+
 def _normalize_arxiv_url(src: str, arxiv_id: str) -> str:
     """Normalize a (possibly relative) URL from an arXiv HTML page to absolute."""
     if src.startswith("http://") or src.startswith("https://"):
@@ -149,6 +195,19 @@ def _fetch_with_retry(url: str, timeout: int = 15, max_retries: int = 2) -> Opti
                 continue
             logger.debug(f"Failed to fetch {url}: {e}")
     return None
+
+
+def _http_status_summary(url: str, timeout: int = 15) -> str:
+    """Return a compact status summary for final fallback diagnostics."""
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=timeout, allow_redirects=True, stream=True)
+        content_type = resp.headers.get("Content-Type", "").split(";", 1)[0] or "unknown"
+        suffix = ""
+        if resp.url != url:
+            suffix = f" final={resp.url}"
+        return f"{resp.status_code} {content_type}{suffix}"
+    except requests.RequestException as e:
+        return f"request_error={type(e).__name__}"
 
 
 def _fetch_arxiv_html_teaser(arxiv_id: str) -> Optional[str]:
@@ -432,9 +491,9 @@ def _extract_pdf_figures_mineru(arxiv_id: str, dest_path: Path) -> bool:
         return False
 
 
-def _extract_pdf_figures_local(arxiv_id: str, dest_path: Path) -> bool:
+def _extract_pdf_url_figures_local(pdf_url: str, dest_path: Path, label: str) -> bool:
     """
-    Extract embedded figures from the arXiv PDF using pdfimages.
+    Extract embedded figures from a PDF URL using pdfimages/pdftoppm.
 
     pdfimages extracts actual embedded images (figures, diagrams, photos)
     from the PDF, NOT rendered page snapshots. This gives us the real
@@ -442,12 +501,15 @@ def _extract_pdf_figures_local(arxiv_id: str, dest_path: Path) -> bool:
 
     Falls back to pdftoppm first-page rendering if no embedded figures found.
     """
-    pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
-    pdf_path = dest_path.parent / f"{arxiv_id}.pdf"
+    safe_label = re.sub(r"[^A-Za-z0-9_.-]+", "-", label).strip("-") or "paper"
+    pdf_path = dest_path.parent / f"{safe_label}.pdf"
 
     # Download PDF
     resp = _fetch_with_retry(pdf_url, timeout=120)
     if not resp:
+        return False
+    content_type = resp.headers.get("Content-Type", "")
+    if "pdf" not in content_type.lower() and not resp.content.startswith(b"%PDF"):
         return False
 
     dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -458,14 +520,14 @@ def _extract_pdf_figures_local(arxiv_id: str, dest_path: Path) -> bool:
 
     # Strategy 1: Extract embedded figures with pdfimages
     try:
-        prefix = str(dest_path.parent / f"{arxiv_id}_fig")
+        prefix = str(dest_path.parent / f"{safe_label}_fig")
         subprocess.run(
             ["pdfimages", "-png", str(pdf_path), prefix],
             capture_output=True, timeout=120,
         )
 
         # Find extracted images > 10KB (these are actual figures)
-        extracted = sorted(dest_path.parent.glob(f"{arxiv_id}_fig-*.png"))
+        extracted = sorted(dest_path.parent.glob(f"{safe_label}_fig-*.png"))
         large = [f for f in extracted if f.stat().st_size > 10240]
 
         if large:
@@ -486,12 +548,12 @@ def _extract_pdf_figures_local(arxiv_id: str, dest_path: Path) -> bool:
 
     # Strategy 2: Fall back to pdftoppm first page (if no embedded figures)
     try:
-        prefix = str(dest_path.parent / f"{arxiv_id}_page")
+        prefix = str(dest_path.parent / f"{safe_label}_page")
         subprocess.run(
             ["pdftoppm", "-f", "1", "-l", "1", "-png", "-scale-to", "800", str(pdf_path), prefix],
             capture_output=True, timeout=60,
         )
-        generated = list(dest_path.parent.glob(f"{arxiv_id}_page-*.png"))
+        generated = list(dest_path.parent.glob(f"{safe_label}_page-*.png"))
         if generated:
             generated[0].rename(dest_path)
             return True
@@ -500,12 +562,18 @@ def _extract_pdf_figures_local(arxiv_id: str, dest_path: Path) -> bool:
     finally:
         if pdf_path.exists():
             pdf_path.unlink()
-        for f in dest_path.parent.glob(f"{arxiv_id}_fig-*"):
+        for f in dest_path.parent.glob(f"{safe_label}_fig-*"):
             f.unlink()
-        for f in dest_path.parent.glob(f"{arxiv_id}_page-*"):
+        for f in dest_path.parent.glob(f"{safe_label}_page-*"):
             f.unlink()
 
     return False
+
+
+def _extract_pdf_figures_local(arxiv_id: str, dest_path: Path) -> bool:
+    """Extract embedded figures from an arXiv PDF using local PDF tooling."""
+    pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+    return _extract_pdf_url_figures_local(pdf_url, dest_path, arxiv_id)
 
 
 def download_image(url: str, dest_path: Path) -> bool:
@@ -646,23 +714,49 @@ def _mark_teaser_fallback_warning(paper: Dict[str, Any], reason: str) -> bool:
     return before != paper.get("generation_notes", [])
 
 
-def fetch_teaser_for_paper(paper: Dict[str, Any]) -> Optional[str]:
+def _sync_existing_teaser_asset(paper: Dict[str, Any]) -> bool:
+    """Use an already-fetched local teaser.png for fallback rows with the same paper id."""
+    paper_id = paper.get("id", "")
+    if not paper_id or not _is_teaser_fallback_preview(paper.get("preview", "")):
+        return False
+    dest_path = ASSETS_DIR / paper_id / "teaser.png"
+    if not dest_path.exists():
+        return False
+    paper["preview"] = f"/assets/papers/{paper_id}/teaser.png"
+    _remove_teaser_fallback_warnings(paper)
+    return True
+
+
+def fetch_teaser_for_paper_detailed(paper: Dict[str, Any]) -> Tuple[Optional[str], str]:
     """
     Fetch teaser image for a single paper using multi-source fallback.
-    Returns the local path if successful, None otherwise.
+    Returns (local path, reason). The reason is used for actionable fallback warnings.
     """
     paper_id = paper.get("id", "")
     links = paper.get("links", {})
     paper_url = links.get("paper", "")
 
-    arxiv_id = _extract_arxiv_id(paper_url)
-    if not arxiv_id:
-        logger.debug(f"No arXiv ID found for {paper_id}")
-        return None
-
     dest_path = ASSETS_DIR / paper_id / "teaser.png"
     if dest_path.exists():
-        return f"/assets/papers/{paper_id}/teaser.png"
+        return f"/assets/papers/{paper_id}/teaser.png", "existing local teaser"
+
+    for pdf_url in _candidate_pdf_urls(links if isinstance(links, dict) else {}):
+        logger.info(f"  Fetching teaser for {paper_id} from direct PDF...")
+        if _extract_pdf_url_figures_local(pdf_url, dest_path, paper_id):
+            logger.info(f"    Extracted teaser from direct PDF")
+            return f"/assets/papers/{paper_id}/teaser.png", "direct PDF extraction succeeded"
+
+    arxiv_id = _extract_arxiv_id(paper_url)
+    if not arxiv_id:
+        if _extract_openreview_id(paper_url):
+            return (
+                None,
+                "OpenReview URL requires challenge/403 for unauthenticated PDF/HTML; no direct PDF or arXiv URL in metadata",
+            )
+        if "ieeexplore.ieee.org" in paper_url or "dl.acm.org" in paper_url:
+            return None, "publisher landing page is not a direct PDF; no open PDF or arXiv URL in metadata"
+        logger.debug(f"No arXiv ID or direct PDF found for {paper_id}")
+        return None, "no arXiv ID or direct PDF URL in metadata"
 
     logger.info(f"  Fetching teaser for {paper_id}...")
 
@@ -672,7 +766,7 @@ def fetch_teaser_for_paper(paper: Dict[str, Any]) -> Optional[str]:
         logger.debug(f"    Found in arXiv HTML: {img_url[:80]}")
         if download_image(img_url, dest_path):
             logger.info(f"    Downloaded from arXiv HTML")
-            return f"/assets/papers/{paper_id}/teaser.png"
+            return f"/assets/papers/{paper_id}/teaser.png", "arXiv HTML extraction succeeded"
 
     # Source 2: Project page
     project_url = _extract_project_page(arxiv_id)
@@ -683,7 +777,7 @@ def fetch_teaser_for_paper(paper: Dict[str, Any]) -> Optional[str]:
             logger.debug(f"    Found teaser on project page: {img_url[:80]}")
             if download_image(img_url, dest_path):
                 logger.info(f"    Downloaded from project page")
-                return f"/assets/papers/{paper_id}/teaser.png"
+                return f"/assets/papers/{paper_id}/teaser.png", "project page extraction succeeded"
 
     # Source 3: arXiv PDF thumbnail
     img_url = _fetch_arxiv_pdf_thumbnail(arxiv_id)
@@ -691,23 +785,38 @@ def fetch_teaser_for_paper(paper: Dict[str, Any]) -> Optional[str]:
         logger.debug(f"    Found PDF thumbnail: {img_url}")
         if download_image(img_url, dest_path):
             logger.info(f"    Downloaded from PDF thumbnail")
-            return f"/assets/papers/{paper_id}/teaser.png"
+            return f"/assets/papers/{paper_id}/teaser.png", "arXiv PDF thumbnail succeeded"
 
     # Source 4: MinerU PDF parsing (extracts actual figures from PDF)
     # Requires MINERU_API_KEY environment variable
     logger.debug(f"    Trying MinerU PDF parsing...")
     if _extract_pdf_figures_mineru(arxiv_id, dest_path):
         logger.info(f"    Extracted Figure 1 via MinerU")
-        return f"/assets/papers/{paper_id}/teaser.png"
+        return f"/assets/papers/{paper_id}/teaser.png", "MinerU PDF extraction succeeded"
 
     # Source 5: Local pdfimages embedded figure extraction (fallback)
     logger.debug(f"    Trying local PDF figure extraction...")
     if _extract_pdf_figures_local(arxiv_id, dest_path):
         logger.info(f"    Extracted Figure 1 via pdfimages")
-        return f"/assets/papers/{paper_id}/teaser.png"
+        return f"/assets/papers/{paper_id}/teaser.png", "local PDF extraction succeeded"
 
     logger.debug(f"    No teaser found for {paper_id}")
-    return None
+    html_status = _http_status_summary(f"https://arxiv.org/html/{arxiv_id}")
+    pdf_status = _http_status_summary(f"https://arxiv.org/pdf/{arxiv_id}.pdf")
+    return (
+        None,
+        "arXiv %s sources failed: HTML figure, project page, HTML thumbnail, MinerU, and local PDF extraction; "
+        "html_status=%s; pdf_status=%s" % (arxiv_id, html_status, pdf_status),
+    )
+
+
+def fetch_teaser_for_paper(paper: Dict[str, Any]) -> Optional[str]:
+    """
+    Fetch teaser image for a single paper using multi-source fallback.
+    Returns the local path if successful, None otherwise.
+    """
+    result, _reason = fetch_teaser_for_paper_detailed(paper)
+    return result
 
 
 class _TeaserTimeout(Exception):
@@ -754,7 +863,7 @@ def main(retry_fallbacks: bool = True, workers: int = 1):
         for paper in candidates:
             try:
                 signal.alarm(120)
-                result = fetch_teaser_for_paper(paper)
+                result, reason = fetch_teaser_for_paper_detailed(paper)
                 signal.alarm(0)
                 if result:
                     paper["preview"] = result
@@ -762,7 +871,7 @@ def main(retry_fallbacks: bool = True, workers: int = 1):
                     success_count += 1
                     since_save += 1
                 elif _is_teaser_fallback_preview(paper.get("preview", "")):
-                    _mark_teaser_fallback_warning(paper, "real teaser fetch failed")
+                    _mark_teaser_fallback_warning(paper, reason)
             except _TeaserTimeout:
                 signal.alarm(0)
                 logger.warning(f"    Timeout (120s) for {paper.get('id')}, skipping")
@@ -781,11 +890,11 @@ def main(retry_fallbacks: bool = True, workers: int = 1):
                 since_save = 0
     else:
         with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = {executor.submit(fetch_teaser_for_paper, paper): paper for paper in candidates}
+            futures = {executor.submit(fetch_teaser_for_paper_detailed, paper): paper for paper in candidates}
             for future in as_completed(futures):
                 paper = futures[future]
                 try:
-                    result = future.result()
+                    result, reason = future.result()
                 except Exception as e:
                     logger.warning(f"    Error for {paper.get('id')}: {e}, skipping")
                     if _is_teaser_fallback_preview(paper.get("preview", "")):
@@ -797,7 +906,7 @@ def main(retry_fallbacks: bool = True, workers: int = 1):
                     success_count += 1
                     since_save += 1
                 elif _is_teaser_fallback_preview(paper.get("preview", "")):
-                    _mark_teaser_fallback_warning(paper, "real teaser fetch failed")
+                    _mark_teaser_fallback_warning(paper, reason)
                 if since_save >= save_interval:
                     save_progress()
                     logger.info(f"  [checkpoint] saved {success_count} new teasers so far")
@@ -805,6 +914,9 @@ def main(retry_fallbacks: bool = True, workers: int = 1):
 
     fallback_count = 0
     for paper in papers:
+        if _sync_existing_teaser_asset(paper):
+            metadata_changed = True
+            continue
         preview = paper.get("preview", "")
         if _is_teaser_fallback_preview(preview):
             fallback_count += 1

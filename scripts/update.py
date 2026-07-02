@@ -312,7 +312,8 @@ def promote_candidates(config: dict, pool, papers_yaml: Path) -> int:
 
         promoted.append(paper_entry)
         pool.mark_promoted(aid)
-        existing_keys.add(aid or paper_entry["id"])
+        existing_keys.add(check_key)
+        existing_keys.add(paper_entry["id"])
 
         if len(promoted) >= batch_size:
             break
@@ -524,8 +525,15 @@ def sync_datasets_step(config: dict, data_dir: Path):
 def fetch_teasers_step(config: dict, data_dir: Path):
     """Step 5: 抓取论文 teaser 图。"""
     from fetch_teasers import main as fetch_teasers
-    logger.info("Fetching paper teaser images...")
-    fetch_teasers()
+    teaser_config = config.get("research", {}).get("teasers", {}) or {}
+    workers = int(teaser_config.get("workers", 1))
+    retry_fallbacks = bool(teaser_config.get("retry_fallbacks", True))
+    logger.info(
+        "Fetching paper teaser images (workers=%s, retry_fallbacks=%s)...",
+        workers,
+        retry_fallbacks,
+    )
+    fetch_teasers(retry_fallbacks=retry_fallbacks, workers=workers)
 
 
 # === Step 6: 构建网站 ===
